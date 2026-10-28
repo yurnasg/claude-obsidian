@@ -98,3 +98,39 @@ them, do the reviewed dry-run in the same environment that will run the apply.
 Keeping the vault inside the WSL filesystem (rather than on a mounted Windows
 drive) avoids both the identity caveats above and cross-boundary performance
 overhead.
+
+### Windows-to-WSL wrapper (`scripts/claude-obsidian.ps1` and `scripts/claude-obsidian.cmd`)
+
+When running an agent host on native Windows (PowerShell or `cmd.exe`), use the
+Windows-to-WSL wrapper so both the reviewed dry-run and the subsequent `--apply`
+run inside the same POSIX WSL environment:
+
+```powershell
+# PowerShell: dry-run and apply inside WSL from native Windows
+.\scripts\claude-obsidian.ps1 init C:\vaults\notes
+.\scripts\claude-obsidian.ps1 init C:\vaults\notes --apply --approved-plan-sha256 <PLAN_SHA256>
+```
+
+```cmd
+REM cmd.exe equivalent
+scripts\claude-obsidian.cmd status --vault C:\vaults\notes
+```
+
+The wrapper handles cross-boundary translation and multi-distro safety:
+
+- **Path translation**: converts Windows drive paths (`C:\...`, `--vault=C:\...`)
+  and WSL UNC paths (`\\wsl.localhost\<distro>\...`, `\\wsl$\<distro>\...`) to
+  POSIX paths inside WSL, and forwards a converted `CLAUDE_OBSIDIAN_VAULT` via
+  `WSLENV=CLAUDE_OBSIDIAN_VAULT/u`.
+- **Single-distro pinning**: resolves one target WSL distribution per
+  invocation in order:
+  1. `CLAUDE_OBSIDIAN_WSL_DISTRO` (recommended when multiple WSL distros are
+     installed)
+  2. Distro inferred from a `\\wsl.localhost\<distro>\...` or
+     `\\wsl$\<distro>\...` path in the command working directory,
+     `CLAUDE_OBSIDIAN_VAULT`, or CLI arguments
+  3. Default WSL distribution from `wsl.exe --status` / `wsl.exe -l -v`
+- **Fail-closed on distro mismatch**: if paths or `CLAUDE_OBSIDIAN_WSL_DISTRO`
+  reference two different WSL distributions in the same command, the wrapper
+  aborts before invoking Python.
+

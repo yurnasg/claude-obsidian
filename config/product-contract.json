@@ -15,10 +15,28 @@
   },
   "supported_hosts": [
     {
+      "id": "agent-plugins-compatible",
+      "support_level": "native",
+      "implementation_paths": [
+        "AGENTS.md",
+        "plugin.json",
+        "skills"
+      ]
+    },
+    {
       "id": "agent-skills-compatible",
       "support_level": "compatible",
       "implementation_paths": [
         "AGENTS.md",
+        "skills"
+      ]
+    },
+    {
+      "id": "antigravity",
+      "support_level": "native",
+      "implementation_paths": [
+        "AGENTS.md",
+        "plugin.json",
         "skills"
       ]
     },
@@ -33,25 +51,38 @@
     },
     {
       "id": "codex-cli",
-      "support_level": "compatible",
+      "support_level": "native",
       "implementation_paths": [
         "AGENTS.md",
+        "plugin.json",
         "skills"
       ]
     },
     {
       "id": "cursor",
-      "support_level": "compatible",
+      "support_level": "native",
       "implementation_paths": [
-        "scripts/setup-multi-agent.sh",
+        "AGENTS.md",
+        "plugin.json",
         "skills"
       ]
     },
     {
       "id": "gemini-cli",
-      "support_level": "compatible",
+      "support_level": "native",
       "implementation_paths": [
-        "scripts/setup-multi-agent.sh",
+        "AGENTS.md",
+        "plugin.json",
+        "skills"
+      ]
+    },
+    {
+      "id": "github-copilot",
+      "support_level": "native",
+      "implementation_paths": [
+        "AGENTS.md",
+        "com.github.copilot/hooks/hooks.json",
+        "plugin.json",
         "skills"
       ]
     },
@@ -74,10 +105,26 @@
   ],
   "installation_modes": [
     {
+      "id": "agent-plugin-package",
+      "host": "agent-plugins-compatible",
+      "implementation_paths": [
+        "plugin.json",
+        "skills"
+      ]
+    },
+    {
       "id": "agent-skills-link",
       "host": "agent-skills-compatible",
       "implementation_paths": [
         "scripts/setup-multi-agent.sh",
+        "skills"
+      ]
+    },
+    {
+      "id": "antigravity-agent-plugin",
+      "host": "antigravity",
+      "implementation_paths": [
+        "plugin.json",
         "skills"
       ]
     },
@@ -100,26 +147,35 @@
       ]
     },
     {
-      "id": "codex-skills-link",
+      "id": "codex-agent-plugin",
       "host": "codex-cli",
       "implementation_paths": [
-        "scripts/setup-multi-agent.sh",
+        "plugin.json",
         "skills"
       ]
     },
     {
-      "id": "cursor-workspace-skills-link",
+      "id": "cursor-agent-plugin",
       "host": "cursor",
       "implementation_paths": [
-        "scripts/setup-multi-agent.sh",
+        "plugin.json",
         "skills"
       ]
     },
     {
-      "id": "gemini-skills-link",
+      "id": "gemini-cli-agent-plugin",
       "host": "gemini-cli",
       "implementation_paths": [
-        "scripts/setup-multi-agent.sh",
+        "plugin.json",
+        "skills"
+      ]
+    },
+    {
+      "id": "github-copilot-agent-plugin",
+      "host": "github-copilot",
+      "implementation_paths": [
+        "com.github.copilot/hooks/hooks.json",
+        "plugin.json",
         "skills"
       ]
     },

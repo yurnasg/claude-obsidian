@@ -9,12 +9,45 @@ CORE="$PRODUCT_ROOT/scripts/claude-obsidian.py"
 test -f "$CORE"
 ```
 
-## Claude marketplace plugin
+## Agent Plugins 1.0 package (default cross-platform plugin)
 
-Install the plugin through its marketplace and invoke namespaced skills such as
-`/claude-obsidian:wiki`. Plugin assets live in an ephemeral cache. Mutable vault
-state must resolve from the project, `--vault`, or workspace configuration,
-never `${CLAUDE_PLUGIN_ROOT}`.
+The root `plugin.json` conforms to the Agent Plugins 1.0 standard
+(`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`), bundling
+`skills/` with client extension namespaces (`com.github.copilot/hooks/hooks.json`
+and `extensions["com.openai"]`).
+
+Compatible platforms support installing the package either globally or scoped
+to a specific project/workspace:
+
+- **Google Antigravity (App & IDE):** Global (`~/.gemini/config/plugins/claude-obsidian`)
+  or workspace-scoped (`<workspace>/.agents/plugins/claude-obsidian`).
+- **Antigravity CLI / Gemini CLI:** Global (`~/.gemini/antigravity-cli/plugins/claude-obsidian`).
+- **VS Code / GitHub Copilot:** Global (`~/.copilot/installed-plugins/_direct/claude-obsidian`
+  or `/plugin install`) or workspace-scoped (`chat.pluginLocations` in `.vscode/settings.json`).
+- **OpenAI Codex / ChatGPT Desktop:** Global (`~/.agents/plugins/marketplace.json`)
+  or project-scoped (`<workspace>/.agents/plugins/marketplace.json`).
+- **Cursor:** Global (`~/.cursor/plugins/local/claude-obsidian` or User scope in Marketplace)
+  or workspace-scoped (`<workspace>/.agents/plugins/claude-obsidian` or Project scope in Marketplace).
+
+Preview and install with:
+
+```bash
+# Global plugin installation (default):
+bash "$PRODUCT_ROOT/scripts/setup-multi-agent.sh" --apply
+
+# Project-scoped plugin installation:
+bash "$PRODUCT_ROOT/scripts/setup-multi-agent.sh" --workspace /path/to/project --apply
+```
+
+Mutable vault state must never resolve from `${PLUGIN_ROOT}`,
+`${CLAUDE_PLUGIN_ROOT}`, or `${CURSOR_PLUGIN_ROOT}`.
+
+## Claude marketplace plugin (default Claude Code integration)
+
+Install the plugin through its marketplace (`.claude-plugin/plugin.json`) and
+invoke namespaced skills such as `/claude-obsidian:wiki`. Plugin assets live in
+an ephemeral cache. Mutable vault state must resolve from the project,
+`--vault`, or workspace configuration, never `${CLAUDE_PLUGIN_ROOT}`.
 
 ## Local Claude plugin development
 
@@ -25,12 +58,11 @@ claude --plugin-dir /path/to/claude-obsidian
 Skills remain namespaced. Run Claude from the user vault, not the plugin source
 directory, or configure the vault explicitly.
 
-## Portable Agent Skills
+## Portable Agent Skills (standalone skill discovery for legacy hosts)
 
-Use `scripts/setup-multi-agent.sh` or link each `skills/<name>/` directory at the
-host's direct `<skill-root>/<name>/SKILL.md` discovery path. Codex, OpenCode,
-and other Agent Skills hosts consume the same `SKILL.md` files. Claude-only
-hooks are adapters, not core workflow logic.
+For hosts that do not yet package plugins as a single unit (OpenCode, ZCode,
+Windsurf), use `setup-multi-agent.sh` with `--host opencode`, `--host zcode`, or
+`--host windsurf --workspace PATH` to link individual `skills/<name>/` directories.
 
 ## Product clone
 

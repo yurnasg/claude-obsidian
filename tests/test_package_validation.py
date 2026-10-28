@@ -17,7 +17,9 @@ from claude_obsidian.package_validation import validate_package
 
 
 class PackageValidationTests(unittest.TestCase):
-    def fixture(self, root: Path, *, frontmatter: str) -> None:
+    def fixture(
+        self, root: Path, *, frontmatter: str, agent_plugin: bool = False
+    ) -> None:
         (root / "skills" / "sample").mkdir(parents=True)
         (root / "skills" / "sample" / "SKILL.md").write_text(
             frontmatter + "\n# Sample\n", encoding="utf-8"
@@ -42,6 +44,17 @@ class PackageValidationTests(unittest.TestCase):
         (root / ".claude-plugin" / "plugin.json").write_text(
             json.dumps({"name": "sample", "version": "1.0.0"}), encoding="utf-8"
         )
+        if agent_plugin:
+            (root / "plugin.json").write_text(
+                json.dumps(
+                    {
+                        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                        "name": "sample",
+                        "version": "1.0.0",
+                    }
+                ),
+                encoding="utf-8",
+            )
         (root / "config").mkdir()
         (root / "config" / "public-marketplace.json").write_text(
             json.dumps(
@@ -59,8 +72,44 @@ class PackageValidationTests(unittest.TestCase):
             self.fixture(
                 root,
                 frontmatter="---\nname: sample\ndescription: Portable sample skill.\n---",
+                agent_plugin=True,
             )
             self.assertTrue(validate_package(root)["ok"])
+            self.assertTrue(validate_package(ROOT)["ok"])
+
+    def test_agent_plugin_manifest_schema_and_drift_are_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(
+                root,
+                frontmatter="---\nname: sample\ndescription: Portable sample skill.\n---",
+            )
+            (root / "plugin.json").write_text(
+                json.dumps(
+                    {
+                        "$schema": "https://agent-plugins.org/schemas/0.0.0/plugin.schema.json",
+                        "name": "different-name",
+                        "version": "9.9.9",
+                        "description": "Drifted metadata",
+                        "unknownField": True,
+                        "extensions": {
+                            "com.openai": {
+                                "hooks": "./hooks/missing.json",
+                                "escape": "./../outside.json",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            codes = {item["code"] for item in validate_package(root)["findings"]}
+            self.assertIn("invalid_agent_plugin_schema", codes)
+            self.assertIn("unknown_agent_plugin_key", codes)
+            self.assertIn("plugin_name_drift", codes)
+            self.assertIn("version_drift", codes)
+            self.assertIn("plugin_metadata_drift", codes)
+            self.assertIn("missing_extension_path", codes)
+            self.assertIn("extension_path_escape", codes)
 
     def test_reserved_host_identity_is_rejected_before_distribution(self) -> None:
         # claude-obsidian is the owner-approved published identity, so a

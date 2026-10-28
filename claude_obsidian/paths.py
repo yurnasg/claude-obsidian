@@ -386,6 +386,25 @@ def assert_not_plugin_tree(
     return resolved
 
 
+PLUGIN_ROOT_ENV_VARS = ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT")
+
+
+def _plugin_roots_from_env(
+    plugin_root: str | os.PathLike[str] | Path | None,
+    environ: Mapping[str, str],
+) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    if plugin_root is not None:
+        roots.append(canonical(plugin_root))
+    for name in PLUGIN_ROOT_ENV_VARS:
+        value = environ.get(name, "").strip()
+        if value:
+            candidate = canonical(value)
+            if candidate not in roots:
+                roots.append(candidate)
+    return tuple(roots)
+
+
 def resolve_vault_root(
     explicit: str | os.PathLike[str] | Path | None = None,
     *,
@@ -404,7 +423,7 @@ def resolve_vault_root(
 
     env = os.environ if environ is None else environ
     cwd = canonical(Path.cwd() if start is None else start)
-    plugin = canonical(plugin_root) if plugin_root is not None else None
+    plugins = _plugin_roots_from_env(plugin_root, env)
     source: str
     if explicit is not None:
         candidate = canonical(explicit)
@@ -422,8 +441,9 @@ def resolve_vault_root(
             # sentinels.  Refuse implicit discovery from the product tree
             # before searching ancestors so source and packaged checkouts have
             # identical, actionable behavior.
-            if plugin is not None and not allow_plugin_root:
-                assert_not_plugin_tree(cwd, plugin, source="cwd-discovery")
+            if not allow_plugin_root:
+                for plugin in plugins:
+                    assert_not_plugin_tree(cwd, plugin, source="cwd-discovery")
             nearest = _nearest_vault(cwd)
             if nearest is None:
                 raise VaultSelectionError(
@@ -434,8 +454,9 @@ def resolve_vault_root(
             source = "cwd-discovery"
 
     candidate = validate_vault_root(candidate, allow_uninitialized=allow_uninitialized)
-    if plugin is not None and not allow_plugin_root:
-        assert_not_plugin_tree(candidate, plugin, source=source)
+    if not allow_plugin_root:
+        for plugin in plugins:
+            assert_not_plugin_tree(candidate, plugin, source=source)
 
     legacy = not (candidate / WORKSPACE_CONFIG).is_file()
     return VaultSelection(root=candidate, source=source, legacy=legacy)

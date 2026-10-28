@@ -22,11 +22,12 @@ mutable knowledge belongs in a separately resolved user vault.
   reviewed operation.
 - Require consent for network egress, destructive changes, and Git checkpoints.
 
-Preview and then install workspace-local skill links with:
+Install as an Agent Plugins 1.0 package (`plugin.json`) via the Cursor
+Marketplace or local plugin directory:
 
 ```bash
-bash scripts/setup-multi-agent.sh --host cursor --workspace "$PWD"
-bash scripts/setup-multi-agent.sh --host cursor --workspace "$PWD" --apply
+bash scripts/setup-multi-agent.sh --host cursor
+bash scripts/setup-multi-agent.sh --host cursor --apply
 ```
 
 Public canonical: https://github.com/AgriciDaniel/claude-obsidian

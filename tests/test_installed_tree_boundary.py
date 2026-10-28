@@ -36,12 +36,14 @@ PRODUCT_DIRS = (
     ".claude-plugin",
     "agents",
     "claude_obsidian",
+    "com.github.copilot",
     "config",
     "hooks",
     "scripts",
     "skills",
     "templates",
 )
+PRODUCT_FILES = ("plugin.json",)
 
 
 def copy_product(destination: Path) -> None:
@@ -53,6 +55,10 @@ def copy_product(destination: Path) -> None:
                 destination / relative,
                 ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
             )
+    for relative in PRODUCT_FILES:
+        source = ROOT / relative
+        if source.is_file():
+            shutil.copy2(source, destination / relative)
 
 
 def fingerprint(root: Path) -> dict[str, tuple[str, str]]:

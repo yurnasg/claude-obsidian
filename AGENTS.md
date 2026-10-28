@@ -1,9 +1,12 @@
 # claude-obsidian: Agent Instructions
 
-claude-obsidian is a local-first Agent Skills package for building source-cited,
-compounding Obsidian knowledge bases. It also ships a Claude Code plugin adapter.
-The portable workflow is implemented in `skills/` and the standard-library
-`claude_obsidian/` core; host hooks never define knowledge behavior.
+claude-obsidian is a local-first **Agent Plugins 1.0** (`plugin.json`) and
+**Claude Code plugin** (`.claude-plugin/plugin.json`) package for building
+source-cited, compounding Obsidian knowledge bases. It bundles portable
+Agent Skills (`skills/`) with the standard-library `claude_obsidian/` core
+and client-specific lifecycle adapters (`hooks/hooks.json` and
+`com.github.copilot/hooks/hooks.json`); host hooks never define knowledge
+behavior.
 
 ## Product and vault boundaries
 
@@ -12,7 +15,8 @@ The portable workflow is implemented in `skills/` and the standard-library
   and `.raw/`. Mutable state always belongs there.
 - `templates/vault/` is the distributable seed. Root `wiki/`, `.raw/`, and
   `.vault-meta/` are contributor state and are excluded from public artifacts.
-- Never derive a user vault from the plugin cache or `${CLAUDE_PLUGIN_ROOT}`.
+- Never derive a user vault from the plugin cache or `${PLUGIN_ROOT}`,
+  `${CLAUDE_PLUGIN_ROOT}`, or `${CURSOR_PLUGIN_ROOT}`.
 - A checkout containing contributor-vault state has no marketplace catalog.
   `config/public-marketplace.json` is injected as
   `.claude-plugin/marketplace.json` only inside the audited release artifact.

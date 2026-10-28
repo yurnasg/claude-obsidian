@@ -584,6 +584,9 @@ class CanonicalPolicyTests(unittest.TestCase):
         plugin = json.loads(
             (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
+        agent_plugin = json.loads(
+            (ROOT / "plugin.json").read_text(encoding="utf-8")
+        )
         marketplace = json.loads(
             (ROOT / "config" / "public-marketplace.json").read_text(
                 encoding="utf-8"
@@ -607,6 +610,12 @@ class CanonicalPolicyTests(unittest.TestCase):
         assert citation_version is not None
         assert citation_date is not None
 
+        self.assertEqual(
+            "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            agent_plugin["$schema"],
+        )
+        self.assertEqual(plugin["name"], agent_plugin["name"])
+        self.assertEqual(version, agent_plugin["version"])
         self.assertEqual(version, marketplace["version"])
         self.assertEqual(version, package_match.group(1))
         self.assertEqual(version, citation_version.group(1))

@@ -107,7 +107,9 @@ claude-canvas/
 # Codex CLI sentinel marker (0-byte read-only file created by `codex` runs)
 .codex
 
-# Workspace-local Agent Skills links created by setup-multi-agent.sh
+# Workspace-local Agent Plugins and Agent Skills links created by setup-multi-agent.sh
+.agents/
+docs agents/
 .cursor/skills/
 .windsurf/skills/
 

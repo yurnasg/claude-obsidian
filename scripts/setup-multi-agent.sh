@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Install portable skill links without overwriting existing host configuration.
+# Install Agent Plugins 1.0 packages (or standalone Agent Skills for legacy hosts)
+# without overwriting existing host configuration.
 
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
+PLUGIN_NAME="claude-obsidian"
 MODE="dry-run"
 WORKSPACE=""
 declare -a HOSTS=()
@@ -14,11 +16,15 @@ HOST_COUNT=0
 usage() {
   cat <<'EOF'
 Usage: scripts/setup-multi-agent.sh [--check|--dry-run|--apply]
-       [--host codex|opencode|gemini|zcode|cursor|windsurf|all] [--workspace PATH]
+       [--host copilot|antigravity|antigravity-cli|gemini|codex|cursor|opencode|zcode|windsurf|all]
+       [--workspace PATH]
 
-Default: dry-run for Codex, OpenCode, and Gemini user-level per-skill links.
-ZCode, Cursor and Windsurf are opt-in and require an explicit --host selection;
-Cursor and Windsurf also require an explicit --workspace destination.
+Installs Agent Plugins 1.0 packages for compatible platforms (Copilot/VS Code,
+Antigravity App/IDE, Antigravity CLI / Gemini CLI, Codex, and Cursor) or
+per-skill links for standalone Agent Skills hosts (OpenCode, ZCode, Windsurf).
+
+Default: dry-run for Copilot, Antigravity, Antigravity CLI, and Codex user-level
+Agent Plugins 1.0 directories.
 Existing files and links pointing elsewhere are never replaced.
 EOF
 }
@@ -48,14 +54,15 @@ done
 [ -d "$SKILLS_DIR" ] || { echo "ERROR: missing skills directory: $SKILLS_DIR" >&2; exit 2; }
 
 if [ "$HOST_COUNT" -eq 0 ]; then
-  HOSTS=(codex opencode gemini)
+  HOSTS=(copilot antigravity antigravity-cli codex)
 fi
 
 expanded=()
 for host in "${HOSTS[@]}"; do
   case "$host" in
-    all) expanded+=(codex opencode gemini cursor windsurf) ;;
-    codex|opencode|gemini|zcode|cursor|windsurf) expanded+=("$host") ;;
+    all) expanded+=(copilot antigravity antigravity-cli codex cursor opencode) ;;
+    gemini) expanded+=(antigravity-cli) ;;
+    copilot|antigravity|antigravity-cli|codex|cursor|opencode|zcode|windsurf) expanded+=("$host") ;;
     *) echo "ERROR: unsupported host: $host" >&2; exit 2 ;;
   esac
 done
@@ -159,17 +166,47 @@ for host in "${expanded[@]}"; do
   esac
   seen="$seen$host "
   case "$host" in
-    codex) destination_root="$HOME/.agents/skills" ;;
+    copilot)
+      inspect_link "$host" "$REPO_ROOT" "$HOME/.copilot/installed-plugins/_direct/$PLUGIN_NAME" ""
+      continue
+      ;;
+    antigravity)
+      if [ -n "$WORKSPACE" ]; then
+        inspect_link "$host" "$REPO_ROOT" "$WORKSPACE/.agents/plugins/$PLUGIN_NAME" "$WORKSPACE"
+      else
+        inspect_link "$host" "$REPO_ROOT" "$HOME/.gemini/config/plugins/$PLUGIN_NAME" ""
+      fi
+      continue
+      ;;
+    antigravity-cli)
+      inspect_link "$host" "$REPO_ROOT" "$HOME/.gemini/antigravity-cli/plugins/$PLUGIN_NAME" ""
+      continue
+      ;;
+    codex)
+      if [ -n "$WORKSPACE" ]; then
+        inspect_link "$host" "$REPO_ROOT" "$WORKSPACE/.agents/plugins/$PLUGIN_NAME" "$WORKSPACE"
+      else
+        inspect_link "$host" "$REPO_ROOT" "$HOME/.agents/plugins/$PLUGIN_NAME" ""
+      fi
+      continue
+      ;;
+    cursor)
+      if [ -n "$WORKSPACE" ]; then
+        inspect_link "$host" "$REPO_ROOT" "$WORKSPACE/.agents/plugins/$PLUGIN_NAME" "$WORKSPACE"
+      else
+        inspect_link "$host" "$REPO_ROOT" "$HOME/.cursor/plugins/local/$PLUGIN_NAME" ""
+      fi
+      continue
+      ;;
     opencode) destination_root="$HOME/.config/opencode/skills" ;;
-    gemini) destination_root="$HOME/.gemini/skills" ;;
     zcode) destination_root="$HOME/.zcode/skills" ;;
-    cursor|windsurf)
+    windsurf)
       if [ -z "$WORKSPACE" ]; then
         echo "ERROR: --host $host requires --workspace PATH" >&2
         status=2
         continue
       fi
-      destination_root="$WORKSPACE/.$host/skills"
+      destination_root="$WORKSPACE/.windsurf/skills"
       ;;
   esac
   for source in "$SKILLS_DIR"/*; do
@@ -178,7 +215,7 @@ for host in "${expanded[@]}"; do
     skill_name="$(basename "$source")"
     confinement_root=""
     case "$host" in
-      cursor|windsurf) confinement_root="$WORKSPACE" ;;
+      windsurf) confinement_root="$WORKSPACE" ;;
     esac
     inspect_link "$host" "$source" "$destination_root/$skill_name" "$confinement_root"
   done

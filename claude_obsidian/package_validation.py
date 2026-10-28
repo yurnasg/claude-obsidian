@@ -41,6 +41,26 @@ RESERVED_OFFICIAL_WORDS = ("claude", "anthropic")
 # refuses it. The owner chose to keep the name users know; any other reserved
 # name is still rejected.
 OWNER_APPROVED_PLUGIN_NAMES = frozenset({"claude-obsidian"})
+AGENT_PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+AGENT_PLUGIN_PATH = "plugin.json"
+AGENT_PLUGIN_NAME_RE = re.compile(
+    r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+)
+AGENT_PLUGIN_ALLOWED_KEYS = frozenset(
+    {
+        "$schema",
+        "name",
+        "version",
+        "description",
+        "author",
+        "homepage",
+        "repository",
+        "license",
+        "keywords",
+        "extensions",
+    }
+)
+AGENT_PLUGIN_AUTHOR_KEYS = frozenset({"name", "email", "url"})
 MARKETPLACE_TEMPLATE = "config/public-marketplace.json"
 MARKETPLACE_PATH = ".claude-plugin/marketplace.json"
 YAML_PLAIN_FORBIDDEN_START = frozenset("-?:,[]{}#&*!|>'\"%@`")
@@ -354,28 +374,28 @@ def _validate_no_legacy_bin_directory(root: Path) -> list[dict[str, str]]:
     return []
 
 
-def _validate_hooks(root: Path) -> list[dict[str, str]]:
-    document, errors = _load_json(root, "hooks/hooks.json")
+def _validate_hooks_file(root: Path, relative: str) -> list[dict[str, str]]:
+    document, errors = _load_json(root, relative)
     if errors:
         return errors
     if not isinstance(document, dict) or not isinstance(document.get("hooks"), dict):
         return [
-            _finding("invalid_hooks", "hooks/hooks.json", "hooks must be an object")
+            _finding("invalid_hooks", relative, "hooks must be an object")
         ]
 
     findings: list[dict[str, str]] = []
     for event, groups in document["hooks"].items():
         if event not in ALLOWED_HOOK_EVENTS:
-            findings.append(_finding("unknown_hook_event", "hooks/hooks.json", event))
+            findings.append(_finding("unknown_hook_event", relative, event))
         if not isinstance(groups, list):
-            findings.append(_finding("invalid_hook_groups", "hooks/hooks.json", event))
+            findings.append(_finding("invalid_hook_groups", relative, event))
             continue
         for group_index, group in enumerate(groups):
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
                 findings.append(
                     _finding(
                         "invalid_hook_group",
-                        "hooks/hooks.json",
+                        relative,
                         f"{event}[{group_index}]",
                     )
                 )
@@ -391,7 +411,7 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
                     findings.append(
                         _finding(
                             "invalid_session_start_matcher",
-                            "hooks/hooks.json",
+                            relative,
                             f"{event}[{group_index}]",
                         )
                     )
@@ -402,7 +422,7 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
                     or hook.get("type") not in ALLOWED_HOOK_TYPES
                 ):
                     findings.append(
-                        _finding("invalid_hook_type", "hooks/hooks.json", location)
+                        _finding("invalid_hook_type", relative, location)
                     )
                     continue
                 hook_type = hook["type"]
@@ -413,7 +433,7 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
                     findings.append(
                         _finding(
                             "unsupported_session_start_hook_type",
-                            "hooks/hooks.json",
+                            relative,
                             location,
                         )
                     )
@@ -421,7 +441,7 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
                     if not isinstance(hook.get("command"), str) or not hook["command"]:
                         findings.append(
                             _finding(
-                                "missing_hook_command", "hooks/hooks.json", location
+                                "missing_hook_command", relative, location
                             )
                         )
                     args = hook.get("args", [])
@@ -430,35 +450,197 @@ def _validate_hooks(root: Path) -> list[dict[str, str]]:
                         or not all(isinstance(value, str) for value in args)
                     ):
                         findings.append(
-                            _finding("invalid_hook_args", "hooks/hooks.json", location)
+                            _finding("invalid_hook_args", relative, location)
                         )
                 elif hook_type == "http":
                     if not isinstance(hook.get("url"), str) or not hook["url"]:
                         findings.append(
-                            _finding("missing_hook_url", "hooks/hooks.json", location)
+                            _finding("missing_hook_url", relative, location)
                         )
                 elif hook_type == "mcp_tool":
                     if not isinstance(hook.get("server"), str) or not hook["server"]:
                         findings.append(
                             _finding(
-                                "missing_hook_server", "hooks/hooks.json", location
+                                "missing_hook_server", relative, location
                             )
                         )
                     if not isinstance(hook.get("tool"), str) or not hook["tool"]:
                         findings.append(
-                            _finding("missing_hook_tool", "hooks/hooks.json", location)
+                            _finding("missing_hook_tool", relative, location)
                         )
                     if "input" in hook and not isinstance(hook.get("input"), dict):
                         findings.append(
-                            _finding("invalid_hook_input", "hooks/hooks.json", location)
+                            _finding("invalid_hook_input", relative, location)
                         )
                 elif hook_type in {"prompt", "agent"}:
                     if not isinstance(hook.get("prompt"), str) or not hook["prompt"]:
                         findings.append(
                             _finding(
-                                "missing_hook_prompt", "hooks/hooks.json", location
+                                "missing_hook_prompt", relative, location
                             )
                         )
+    return findings
+
+
+def _validate_hooks(root: Path) -> list[dict[str, str]]:
+    findings = _validate_hooks_file(root, "hooks/hooks.json")
+    copilot_hooks = "com.github.copilot/hooks/hooks.json"
+    if (root / copilot_hooks).exists() or (root / copilot_hooks).is_symlink():
+        findings.extend(_validate_hooks_file(root, copilot_hooks))
+    return findings
+
+
+def _validate_extension_paths(
+    root: Path, value: Any, location: str = "extensions"
+) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            findings.extend(_validate_extension_paths(root, item, f"{location}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(
+                _validate_extension_paths(root, item, f"{location}[{index}]")
+            )
+    elif isinstance(value, str) and value.startswith("./"):
+        relative = value.removeprefix("./")
+        candidate = (root / relative).resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            findings.append(
+                _finding("extension_path_escape", AGENT_PLUGIN_PATH, location)
+            )
+            return findings
+        if not candidate.exists():
+            findings.append(
+                _finding("missing_extension_path", AGENT_PLUGIN_PATH, location)
+            )
+    return findings
+
+
+def _validate_agent_plugin_manifest(
+    root: Path, claude_plugin: Any
+) -> list[dict[str, str]]:
+    manifest_path = root / AGENT_PLUGIN_PATH
+    if not manifest_path.exists() and not manifest_path.is_symlink():
+        return []
+    if manifest_path.is_symlink():
+        return [
+            _finding(
+                "unsafe_agent_plugin_manifest",
+                AGENT_PLUGIN_PATH,
+                "agent plugin manifest cannot be a symlink",
+            )
+        ]
+    document, errors = _load_json(root, AGENT_PLUGIN_PATH)
+    if errors:
+        return errors
+    if not isinstance(document, dict):
+        return [
+            _finding(
+                "invalid_agent_plugin_manifest",
+                AGENT_PLUGIN_PATH,
+                "manifest root must be an object",
+            )
+        ]
+
+    findings: list[dict[str, str]] = []
+    for key in sorted(set(document) - AGENT_PLUGIN_ALLOWED_KEYS):
+        findings.append(
+            _finding(
+                "unknown_agent_plugin_key",
+                AGENT_PLUGIN_PATH,
+                f"unknown property: {key}",
+            )
+        )
+    if document.get("$schema") != AGENT_PLUGIN_SCHEMA:
+        findings.append(
+            _finding(
+                "invalid_agent_plugin_schema",
+                AGENT_PLUGIN_PATH,
+                f"$schema must be {AGENT_PLUGIN_SCHEMA}",
+            )
+        )
+    name = document.get("name")
+    if (
+        not isinstance(name, str)
+        or not (1 <= len(name) <= 64)
+        or AGENT_PLUGIN_NAME_RE.fullmatch(name) is None
+    ):
+        findings.append(
+            _finding("invalid_plugin_name", AGENT_PLUGIN_PATH, "name")
+        )
+    for field in ("version", "description", "homepage", "repository", "license"):
+        if field in document and (
+            not isinstance(document.get(field), str) or not document[field]
+        ):
+            findings.append(
+                _finding("invalid_agent_plugin_field", AGENT_PLUGIN_PATH, field)
+            )
+    if "author" in document:
+        author = document.get("author")
+        if not isinstance(author, dict) or set(author) - AGENT_PLUGIN_AUTHOR_KEYS or not all(
+            isinstance(value, str) and value for value in author.values()
+        ):
+            findings.append(
+                _finding("invalid_agent_plugin_field", AGENT_PLUGIN_PATH, "author")
+            )
+    if "keywords" in document:
+        keywords = document.get("keywords")
+        if not isinstance(keywords, list) or not all(
+            isinstance(item, str) and item for item in keywords
+        ):
+            findings.append(
+                _finding("invalid_agent_plugin_field", AGENT_PLUGIN_PATH, "keywords")
+            )
+    if "extensions" in document:
+        extensions = document.get("extensions")
+        if not isinstance(extensions, dict) or not all(
+            isinstance(key, str) and isinstance(value, dict)
+            for key, value in extensions.items()
+        ):
+            findings.append(
+                _finding("invalid_agent_plugin_field", AGENT_PLUGIN_PATH, "extensions")
+            )
+        else:
+            findings.extend(_validate_extension_paths(root, extensions))
+
+    if isinstance(claude_plugin, dict):
+        if name != claude_plugin.get("name"):
+            findings.append(
+                _finding(
+                    "plugin_name_drift",
+                    AGENT_PLUGIN_PATH,
+                    "root plugin.json and .claude-plugin/plugin.json names must match",
+                )
+            )
+        if document.get("version") != claude_plugin.get("version"):
+            findings.append(
+                _finding(
+                    "version_drift",
+                    AGENT_PLUGIN_PATH,
+                    "root plugin.json and .claude-plugin/plugin.json versions must match",
+                )
+            )
+        expected_shared = {
+            key: value
+            for key, value in claude_plugin.items()
+            if key not in {"name", "version"}
+        }
+        actual_shared = {
+            key: value
+            for key, value in document.items()
+            if key not in {"$schema", "name", "version", "extensions"}
+        }
+        if actual_shared != expected_shared:
+            findings.append(
+                _finding(
+                    "plugin_metadata_drift",
+                    AGENT_PLUGIN_PATH,
+                    "root plugin.json metadata must match .claude-plugin/plugin.json",
+                )
+            )
     return findings
 
 
@@ -536,7 +718,7 @@ def _validate_versions(root: Path) -> list[dict[str, str]]:
     marketplace, marketplace_errors = _load_json(root, MARKETPLACE_TEMPLATE)
     errors.extend(marketplace_errors)
     if errors:
-        return errors
+        return [*errors, *_validate_agent_plugin_manifest(root, plugin)]
     findings: list[dict[str, str]] = []
     plugin_name = plugin.get("name") if isinstance(plugin, dict) else None
     plugin_version = plugin.get("version") if isinstance(plugin, dict) else None
@@ -637,6 +819,7 @@ def _validate_versions(root: Path) -> list[dict[str, str]]:
                     + ", ".join(live_roots),
                 )
             )
+    findings.extend(_validate_agent_plugin_manifest(root, plugin))
     return findings
 
 

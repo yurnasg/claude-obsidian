@@ -81,6 +81,23 @@ def test_plugin_root_rejected_implicitly_and_explicitly() -> None:
         assert selected.root == root.resolve()
 
 
+def test_plugin_root_env_vars_rejected_implicitly_and_explicitly() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = make_vault(Path(td) / "plugin")
+        for var_name in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT"):
+            env = {var_name: str(root)}
+            for explicit in (None, root):
+                try:
+                    resolve_vault_root(explicit, start=root, environ=env)
+                except VaultSelectionError as exc:
+                    assert exc.code == "PLUGIN_ROOT_IS_NOT_VAULT", (
+                        var_name,
+                        exc.code,
+                    )
+                else:
+                    raise AssertionError(f"{var_name} must be rejected as vault")
+
+
 def test_plugin_tree_without_vault_sentinels_is_still_rejected_implicitly() -> None:
     with tempfile.TemporaryDirectory() as td:
         plugin = Path(td) / "installed-product"
@@ -265,6 +282,7 @@ def test_platform_flag_helpers_degrade_without_posix_flags() -> None:
 def main() -> None:
     test_precedence_and_config()
     test_plugin_root_rejected_implicitly_and_explicitly()
+    test_plugin_root_env_vars_rejected_implicitly_and_explicitly()
     test_plugin_tree_without_vault_sentinels_is_still_rejected_implicitly()
     test_plugin_descendants_are_never_mutable_vaults()
     test_missing_or_ambiguous_selection_fails_closed()

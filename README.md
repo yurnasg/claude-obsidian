@@ -26,6 +26,7 @@
 
 <p align="center">
   <a href="https://github.com/AgriciDaniel/claude-obsidian/actions/workflows/test.yml"><img src="https://github.com/AgriciDaniel/claude-obsidian/actions/workflows/test.yml/badge.svg" alt="Tests" /></a>
+  <a href="https://agent-plugins.org"><img src="https://img.shields.io/badge/Agent%20Plugins-1.0-0ea5e9" alt="Agent Plugins 1.0" /></a>
   <a href="https://code.claude.com/docs/en/plugins"><img src="https://img.shields.io/badge/Claude%20Code-plugin-7c3aed" alt="Claude Code plugin" /></a>
   <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent%20Skills-compatible-2563eb" alt="Agent Skills compatible" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
@@ -43,7 +44,7 @@
   </a>
 </p>
 
-**claude-obsidian turns the things you read into a knowledge base that keeps getting more useful.** Drop a paper, an article, a transcript or your own notes into the vault, and Claude reads them, writes linked notes with sources, and files everything into one connected knowledge graph you can explore in Obsidian.
+**claude-obsidian turns the things you read into a knowledge base that keeps getting more useful.** Packaged natively as an [Agent Plugins 1.0](https://agent-plugins.org) bundle and a [Claude Code plugin](https://code.claude.com/docs/en/plugins) with portable [Agent Skills](https://agentskills.io), it drops right into your favorite agent host. Put a paper, an article, a transcript or your own notes into the vault, and your agent reads them, writes linked notes with sources, and files everything into one connected knowledge graph you can explore in Obsidian.
 
 - **Capture.** Put sources in `inbox/`. The originals are kept, untouched, so every summary can point back to where it came from.
 - **Connect.** Claude writes linked pages, indexes and maps of content, so new ideas join the graph instead of piling up.
@@ -92,19 +93,31 @@ Open the same folder in Obsidian with **Open folder as vault** to browse your no
 Already have an Obsidian vault? `/claude-obsidian:wiki` can adopt it without moving your notes. The [installation guide](docs/install-guide.md#adopt-an-existing-vault) walks through it.
 
 <details>
-<summary><b>Other AI tools: Codex, OpenCode, Gemini, ZCode, Cursor and Windsurf</b></summary>
+<summary><b>Other AI tools: Antigravity, Copilot, Codex, Cursor, OpenCode, Gemini, and Windsurf</b></summary>
 <br />
 
-claude-obsidian is a set of [Agent Skills](https://agentskills.io), so it also runs in other hosts. From a copy of this repo, preview the setup, then apply it:
+claude-obsidian is packaged as an open [Agent Plugins 1.0](https://agent-plugins.org) bundle with portable [Agent Skills](https://agentskills.io), running across multiple IDEs, CLIs, and agent hosts.
 
-```bash
-git clone https://github.com/AgriciDaniel/claude-obsidian.git
-cd claude-obsidian
-bash scripts/setup-multi-agent.sh --host codex            # preview, writes nothing
-bash scripts/setup-multi-agent.sh --host codex --apply    # link the skills
-```
+- **Agent Plugins 1.0 (Antigravity, Copilot, Codex, Cursor):**
+  Install either **globally** across all projects or **locally** for the current workspace:
+  ```bash
+  # Global installation (Antigravity, Copilot, Antigravity CLI, Codex):
+  bash scripts/setup-multi-agent.sh --apply
 
-Use `--host opencode`, `--host gemini` or `--host zcode` the same way. Cursor and Windsurf need a workspace: `--host cursor --host windsurf --workspace <folder> --apply`. Every host is covered in the [installation guide](docs/install-guide.md).
+  # Project-scoped installation:
+  bash scripts/setup-multi-agent.sh --host antigravity --workspace "$PWD" --apply
+  bash scripts/setup-multi-agent.sh --host codex --workspace "$PWD" --apply
+  bash scripts/setup-multi-agent.sh --host cursor --workspace "$PWD" --apply
+  ```
+
+- **Standalone Agent Skills hosts (OpenCode, Gemini, ZCode, Windsurf):**
+  Preview and apply per-skill links:
+  ```bash
+  bash scripts/setup-multi-agent.sh --host opencode --apply
+  bash scripts/setup-multi-agent.sh --host gemini --apply
+  ```
+
+Every supported host, marketplace setup, vault adoption, and uninstall steps are covered in the [full installation guide](docs/install-guide.md).
 
 </details>
 
@@ -112,7 +125,7 @@ Use `--host opencode`, `--host gemini` or `--host zcode` the same way. Cursor an
 <summary><b>Windows</b></summary>
 <br />
 
-On Windows, use WSL for anything that writes to the vault. Native Windows can inspect and preview, and stops with a clear error instead of writing. The [Windows and WSL guide](docs/windows-wsl.md) has the details.
+On native Windows, read-only inspection and dry-run commands work directly in Python; vault writes require WSL and fail closed with an `UNSUPPORTED_PLATFORM` error otherwise. From native Windows shells (PowerShell or `cmd.exe`), `scripts/claude-obsidian.ps1` and `scripts/claude-obsidian.cmd` transparently forward commands into WSL with automatic Windows/UNC path translation. See the [Windows and WSL guide](docs/windows-wsl.md).
 
 </details>
 
@@ -337,10 +350,10 @@ Most AI note tools save text and stop. claude-obsidian keeps the original source
 </details>
 
 <details>
-<summary><b>Does it work with Codex, Gemini or Cursor?</b></summary>
+<summary><b>Does it work with Antigravity, Copilot, Codex, Gemini or Cursor?</b></summary>
 <br />
 
-Yes. The skills follow the open Agent Skills format. Claude Code gets the full plugin; Codex, OpenCode, Gemini, ZCode, Cursor and Windsurf link the same skills with one setup script. See [Install](#install).
+Yes. claude-obsidian is packaged as an open [Agent Plugins 1.0](https://agent-plugins.org) bundle and a Claude Code plugin with portable [Agent Skills](https://agentskills.io). Claude Code and Agent Plugins clients (Google Antigravity, VS Code / GitHub Copilot, Codex, Cursor) load the plugin natively; standalone skills hosts (OpenCode, Gemini, ZCode, Windsurf) link the same skills with one setup script. See [Install](#install).
 
 </details>
 
@@ -348,7 +361,7 @@ Yes. The skills follow the open Agent Skills format. Claude Code gets the full p
 <summary><b>Good to know: requirements, limits and uninstall</b></summary>
 <br />
 
-**Requirements.** Python 3.11 or newer, a current Claude Code release for the plugin (or another Agent Skills host), Obsidian for the visual side, and Bash for the setup scripts. Git is only needed for development or checkpoints.
+**Requirements.** Python 3.11 or newer, an Agent Plugins 1.0 client (Antigravity, Copilot, Codex, Cursor), Claude Code, or an Agent Skills host, Obsidian for the visual side, and Bash for setup scripts. Git is only needed for development or checkpoints.
 
 **Limits.** It is not an automatic transcript recorder, a cloud sync service or a fact checker, and it does not replace backups. PDFs and web pages need extra tools for full text.
 

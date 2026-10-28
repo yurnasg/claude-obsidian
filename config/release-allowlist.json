@@ -39,14 +39,14 @@
     "CODEOWNERS",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
-    "GEMINI.md",
     "LICENSE",
     "Makefile",
     "PRIVACY.md",
     "README.md",
     "SECURITY.md",
     "WIKI.md",
-    "ZCODE.md"
+    "ZCODE.md",
+    "plugin.json"
   ],
   "include_globs": [
     ".github/*.md",
@@ -61,6 +61,7 @@
     "agents",
     "assets",
     "claude_obsidian",
+    "com.github.copilot",
     "config",
     "docs",
     "examples",

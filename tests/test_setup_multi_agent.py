@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermetic tests for the safe multi-host skill-link installer."""
+"""Hermetic tests for the safe multi-host Agent Plugins 1.0 & Agent Skills installer."""
 
 from __future__ import annotations
 
@@ -34,113 +34,132 @@ class SetupMultiAgentTests(unittest.TestCase):
             result = self.invoke(home)
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertIn("Dry run only", result.stdout)
-            self.assertFalse((home / ".codex").exists())
+            self.assertFalse((home / ".copilot").exists())
+            self.assertFalse((home / ".gemini").exists())
+            self.assertFalse((home / ".agents").exists())
 
-    def test_apply_is_idempotent_for_global_hosts(self) -> None:
+    def test_apply_is_idempotent_for_default_agent_plugin_hosts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             first = self.invoke(home, "--apply")
             self.assertEqual(0, first.returncode, first.stderr)
-            roots = {
-                "codex": home / ".agents/skills",
-                "opencode": home / ".config/opencode/skills",
-                "gemini": home / ".gemini/skills",
+            plugin_links = {
+                "copilot": home / ".copilot/installed-plugins/_direct/claude-obsidian",
+                "antigravity": home / ".gemini/config/plugins/claude-obsidian",
+                "antigravity-cli": home
+                / ".gemini/antigravity-cli/plugins/claude-obsidian",
+                "codex": home / ".agents/plugins/claude-obsidian",
             }
-            expected = sorted(
+            expected_skills = sorted(
                 path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")
             )
-            self.assertEqual(15, len(expected))
-            for host, skill_root in roots.items():
+            self.assertEqual(15, len(expected_skills))
+            for host, link in plugin_links.items():
+                self.assertTrue(link.is_symlink(), host)
+                self.assertEqual(ROOT, link.resolve(), host)
+                self.assertTrue((link / "plugin.json").is_file(), host)
                 discovered = sorted(
-                    path.parent.name for path in skill_root.glob("*/SKILL.md")
+                    path.parent.name for path in (link / "skills").glob("*/SKILL.md")
                 )
-                self.assertEqual(expected, discovered, host)
-                for skill_name in expected:
-                    link = skill_root / skill_name
-                    self.assertTrue(link.is_symlink(), (host, skill_name))
-                    self.assertEqual(ROOT / "skills" / skill_name, link.resolve())
-            self.assertFalse((home / ".opencode").exists())
+                self.assertEqual(expected_skills, discovered, host)
             second = self.invoke(home, "--apply")
             self.assertEqual(0, second.returncode, second.stderr)
-            self.assertEqual(45, second.stdout.count("READY"))
+            self.assertEqual(4, second.stdout.count("READY"))
 
     def test_conflict_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            conflict = home / ".agents/skills/wiki"
+            conflict = home / ".agents/plugins/claude-obsidian"
             conflict.mkdir(parents=True)
             marker = conflict / "mine"
             marker.write_text("preserve", encoding="utf-8")
             result = self.invoke(home, "--apply", "--host", "codex")
             self.assertEqual(2, result.returncode)
             self.assertEqual("preserve", marker.read_text(encoding="utf-8"))
-            self.assertTrue((home / ".agents/skills/save/SKILL.md").is_file())
 
-    def test_zcode_host_installs_global_links(self) -> None:
+    def test_antigravity_and_cursor_plugin_global_and_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            global_run = self.invoke(
+                base,
+                "--apply",
+                "--host",
+                "antigravity",
+                "--host",
+                "gemini",
+                "--host",
+                "cursor",
+            )
+            self.assertEqual(0, global_run.returncode, global_run.stderr)
+            for link in (
+                base / ".gemini/config/plugins/claude-obsidian",
+                base / ".gemini/antigravity-cli/plugins/claude-obsidian",
+                base / ".cursor/plugins/local/claude-obsidian",
+            ):
+                self.assertTrue(link.is_symlink(), str(link))
+                self.assertEqual(ROOT, link.resolve())
+                self.assertTrue((link / "plugin.json").is_file())
+
+            workspace = base / "workspace"
+            workspace.mkdir()
+            ws_run = self.invoke(
+                base,
+                "--apply",
+                "--host",
+                "antigravity",
+                "--workspace",
+                str(workspace),
+            )
+            self.assertEqual(0, ws_run.returncode, ws_run.stderr)
+            ws_plugin = workspace / ".agents/plugins/claude-obsidian"
+            self.assertTrue(ws_plugin.is_symlink())
+            self.assertEqual(ROOT, ws_plugin.resolve())
+            self.assertTrue((ws_plugin / "plugin.json").is_file())
+
+    def test_standalone_skills_hosts_opencode_zcode_windsurf(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            first = self.invoke(home, "--apply", "--host", "zcode")
+            first = self.invoke(
+                home, "--apply", "--host", "opencode", "--host", "zcode"
+            )
             self.assertEqual(0, first.returncode, first.stderr)
-            skill_root = home / ".zcode/skills"
             expected = sorted(
                 path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")
             )
             self.assertEqual(15, len(expected))
-            discovered = sorted(
-                path.parent.name for path in skill_root.glob("*/SKILL.md")
-            )
-            self.assertEqual(expected, discovered)
-            for skill_name in expected:
-                link = skill_root / skill_name
-                self.assertTrue(link.is_symlink(), skill_name)
-                self.assertEqual(ROOT / "skills" / skill_name, link.resolve())
-            # ZCode is opt-in: the default hosts are not installed alongside it.
-            self.assertFalse((home / ".agents/skills").exists())
-            second = self.invoke(home, "--apply", "--host", "zcode")
-            self.assertEqual(0, second.returncode, second.stderr)
-            self.assertEqual(15, second.stdout.count("READY"))
+            for skill_root in (
+                home / ".config/opencode/skills",
+                home / ".zcode/skills",
+            ):
+                discovered = sorted(
+                    path.parent.name for path in skill_root.glob("*/SKILL.md")
+                )
+                self.assertEqual(expected, discovered)
+                for skill_name in expected:
+                    link = skill_root / skill_name
+                    self.assertTrue(link.is_symlink(), skill_name)
+                    self.assertEqual(ROOT / "skills" / skill_name, link.resolve())
 
-    def test_zcode_host_conflict_is_preserved(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            home = Path(directory)
-            conflict = home / ".zcode/skills/wiki"
-            conflict.mkdir(parents=True)
-            marker = conflict / "mine"
-            marker.write_text("preserve", encoding="utf-8")
-            result = self.invoke(home, "--apply", "--host", "zcode")
-            self.assertEqual(2, result.returncode)
-            self.assertEqual("preserve", marker.read_text(encoding="utf-8"))
-            self.assertTrue((home / ".zcode/skills/save/SKILL.md").is_file())
-
-    def test_workspace_hosts_are_explicit(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            missing = self.invoke(base, "--host", "cursor")
-            self.assertEqual(2, missing.returncode)
-            workspace = base / "workspace"
+            missing_ws = self.invoke(home, "--host", "windsurf")
+            self.assertEqual(2, missing_ws.returncode)
+            workspace = home / "workspace"
             workspace.mkdir()
-            applied = self.invoke(
-                base,
+            ws_applied = self.invoke(
+                home,
                 "--apply",
-                "--host",
-                "cursor",
                 "--host",
                 "windsurf",
                 "--workspace",
                 str(workspace),
             )
-            self.assertEqual(0, applied.returncode, applied.stderr)
-            for host in ("cursor", "windsurf"):
-                skill_root = workspace / f".{host}/skills"
-                self.assertEqual(
-                    15,
-                    len(list(skill_root.glob("*/SKILL.md"))),
-                    host,
-                )
-                self.assertTrue((skill_root / "wiki").is_symlink())
+            self.assertEqual(0, ws_applied.returncode, ws_applied.stderr)
+            self.assertEqual(
+                15,
+                len(list((workspace / ".windsurf/skills").glob("*/SKILL.md"))),
+            )
 
     def test_workspace_parent_symlinks_cannot_redirect_apply(self) -> None:
-        for symlink_component in (".cursor", ".cursor/skills"):
+        for symlink_component in (".agents", ".agents/plugins"):
             with (
                 self.subTest(component=symlink_component),
                 tempfile.TemporaryDirectory() as directory,
@@ -157,7 +176,7 @@ class SetupMultiAgentTests(unittest.TestCase):
                     base,
                     "--dry-run",
                     "--host",
-                    "cursor",
+                    "antigravity",
                     "--workspace",
                     str(workspace),
                 )
@@ -167,7 +186,7 @@ class SetupMultiAgentTests(unittest.TestCase):
                     base,
                     "--apply",
                     "--host",
-                    "cursor",
+                    "antigravity",
                     "--workspace",
                     str(workspace),
                 )

@@ -2,7 +2,10 @@
 
 claude-obsidian has two independent parts:
 
-1. the product package (skills, portable core, Claude adapter, and templates);
+1. the product package (shipped by default as an **Agent Plugins 1.0** package
+   (`plugin.json`) and a **Claude Code plugin** (`.claude-plugin/plugin.json`),
+   bundling portable Agent Skills (`skills/`), core (`claude_obsidian/`), and
+   templates);
 2. a user-owned Obsidian vault containing mutable knowledge.
 
 Do not use an installed plugin cache as the vault. A source clone is suitable
@@ -11,14 +14,84 @@ for development, but a normal user vault should be a separate directory.
 ## Requirements
 
 - Python 3.11 or newer
-- an Agent Skills compatible host, or Claude Code for the plugin adapter
+- an [Agent Plugins 1.0](https://agent-plugins.org) client (VS Code / GitHub
+  Copilot, Cursor, ChatGPT, Codex), Claude Code, or an [Agent Skills](https://agentskills.io)
+  compatible host
 - Obsidian when you want its visual editor
 - Bash for installer and optional legacy-extension scripts
 - Git only for source development, release builds, or explicit checkpoints
 - On Windows: WSL for vault writes; native Windows supports read-only
   inspection and dry-runs, see the [Windows and WSL guide](windows-wsl.md)
 
-## Claude Code marketplace
+## Agent Plugins 1.0 (Default Cross-Platform Package)
+
+The repository root ships a canonical `plugin.json` conforming to
+`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`, alongside
+`skills/`, `com.github.copilot/hooks/hooks.json`, and `extensions["com.openai"]`.
+
+Compatible platforms support installing the package **globally** (available
+across all projects on the workstation) or **per-workspace / project** (active
+only when working in that directory):
+
+### Summary of Installation Locations
+
+| Platform / Client | Workspace / Project Scope | Global Scope |
+|---|---|---|
+| **Google Antigravity (App & IDE)** | `<workspace>/.agents/plugins/claude-obsidian` | `~/.gemini/config/plugins/claude-obsidian` |
+| **Antigravity CLI / Gemini CLI** | — | `~/.gemini/antigravity-cli/plugins/claude-obsidian` |
+| **VS Code / GitHub Copilot** | `.vscode/settings.json` (`chat.pluginLocations`) | `~/.copilot/installed-plugins/_direct/claude-obsidian` |
+| **OpenAI Codex / ChatGPT** | `<workspace>/.agents/plugins/marketplace.json` | `~/.agents/plugins/marketplace.json` |
+| **Cursor** | `<workspace>/.agents/plugins/claude-obsidian` | `~/.cursor/plugins/local/claude-obsidian` |
+
+### Installing via `setup-multi-agent.sh`
+
+The installer manages these package links safely without overwriting foreign files:
+
+- **Global installation (default):**
+  Installs user-level Agent Plugins links for Copilot, Antigravity, Antigravity CLI,
+  and Codex:
+  ```bash
+  bash scripts/setup-multi-agent.sh
+  bash scripts/setup-multi-agent.sh --apply
+  ```
+
+- **Project-scoped installation (`--workspace PATH`):**
+  Installs the plugin confined to a specific project workspace:
+  ```bash
+  # Install into current project (.agents/plugins/claude-obsidian):
+  bash scripts/setup-multi-agent.sh --host antigravity --workspace "$PWD" --apply
+  bash scripts/setup-multi-agent.sh --host codex --workspace "$PWD" --apply
+  bash scripts/setup-multi-agent.sh --host cursor --workspace "$PWD" --apply
+  ```
+
+- **Check readiness without writing:**
+  ```bash
+  bash scripts/setup-multi-agent.sh --check
+  ```
+
+### Platform-Specific Native Setup
+
+- **VS Code and GitHub Copilot:**
+  Install directly from the repository in VS Code (`Chat: Install Plugin From Source`
+  or `/plugin install https://github.com/AgriciDaniel/claude-obsidian`), or register a
+  workspace checkout in `.vscode/settings.json`:
+  ```json
+  {
+    "chat.pluginLocations": {
+      "/absolute/path/to/claude-obsidian": true
+    }
+  }
+  ```
+
+- **Cursor:**
+  In **Customize -> Plugins**, click **Install** and choose between **Project Scope**
+  or **User Scope**, or clone/link into `~/.cursor/plugins/local/claude-obsidian`.
+
+- **OpenAI Codex / ChatGPT:**
+  Add a marketplace entry pointing to the plugin in `$REPO_ROOT/.agents/plugins/marketplace.json`
+  (project) or `~/.agents/plugins/marketplace.json` (global).
+
+## Claude Code Plugin (Default Claude Integration)
 
 Add the public catalog and install the namespaced plugin:
 
@@ -43,7 +116,7 @@ Invoke skills as `/claude-obsidian:wiki`,
 The plugin cache contains read-only product assets. Run Claude from the user
 vault, set `CLAUDE_OBSIDIAN_VAULT`, or pass `--vault` to portable commands.
 
-## Local Claude plugin development
+### Local Claude plugin development
 
 From a product clone:
 
@@ -54,49 +127,29 @@ claude --plugin-dir <product-repository>
 This mode is for testing uninstalled changes. Skills remain namespaced. It does
 not convert the product repository into a user vault.
 
-## Portable Agent Skills hosts
+## Portable Agent Skills hosts (legacy hosts)
 
-The installer defaults to a no-write preview for Codex, OpenCode, and Gemini:
-
-```bash
-bash scripts/setup-multi-agent.sh
-bash scripts/setup-multi-agent.sh --apply
-```
-
-It links each canonical `skills/<name>/` directory into the host's direct
-`<skill-root>/<name>/SKILL.md` discovery layout. Destinations are created only
-when absent; an existing skill or link is never replaced. Check readiness
-without writing:
+For hosts that do not yet package plugins as a single unit (OpenCode, ZCode,
+Windsurf), link each canonical `skills/<name>/` directory into the host's direct
+`<skill-root>/<name>/SKILL.md` layout:
 
 ```bash
-bash scripts/setup-multi-agent.sh --check
-```
+# OpenCode (user-level):
+bash scripts/setup-multi-agent.sh --host opencode --apply
 
-Cursor and Windsurf use workspace-local discovery and require an explicit
-workspace:
-
-```bash
-bash scripts/setup-multi-agent.sh --host cursor --host windsurf \
-  --workspace <workspace> --apply
-```
-
-ZCode is opt-in and user-level (no `--workspace` needed):
-
-```bash
-bash scripts/setup-multi-agent.sh --host zcode
+# ZCode (user-level):
 bash scripts/setup-multi-agent.sh --host zcode --apply
+
+# Windsurf (workspace-scoped):
+bash scripts/setup-multi-agent.sh --host windsurf --workspace <workspace> --apply
 ```
 
-You can also create equivalent per-skill links manually. For each `<name>` under
-the product's `skills/` directory, link that directory at:
+Manual per-skill link locations:
 
 ```text
-Codex:     ~/.agents/skills/<name>          -> <product-repository>/skills/<name>
-OpenCode:  ~/.config/opencode/skills/<name> -> <product-repository>/skills/<name>
-Gemini:    ~/.gemini/skills/<name>          -> <product-repository>/skills/<name>
-ZCode:     ~/.zcode/skills/<name>           -> <product-repository>/skills/<name>
-Cursor:    <workspace>/.cursor/skills/<name>   -> <product-repository>/skills/<name>
-Windsurf:  <workspace>/.windsurf/skills/<name> -> <product-repository>/skills/<name>
+OpenCode:            ~/.config/opencode/skills/<name>    -> <product-repository>/skills/<name>
+ZCode:               ~/.zcode/skills/<name>              -> <product-repository>/skills/<name>
+Windsurf:            <workspace>/.windsurf/skills/<name> -> <product-repository>/skills/<name>
 ```
 
 ## Create a new vault
