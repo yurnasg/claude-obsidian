@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from claude_obsidian.paths import (
     MAX_WORKSPACE_CONFIG_BYTES,
+    PLUGIN_ROOT_ENV_VARS,
     VaultSelectionError,
     assert_not_plugin_tree,
     assert_within,
@@ -82,9 +83,19 @@ def test_plugin_root_rejected_implicitly_and_explicitly() -> None:
 
 
 def test_plugin_root_env_vars_rejected_implicitly_and_explicitly() -> None:
+    expected_vars = {
+        "PLUGIN_ROOT",
+        "CLAUDE_PLUGIN_ROOT",
+        "CURSOR_PLUGIN_ROOT",
+        "COPILOT_PLUGIN_ROOT",
+        "ANTIGRAVITY_PLUGIN_ROOT",
+        "CODEX_PLUGIN_ROOT",
+        "GEMINI_PLUGIN_ROOT",
+    }
+    assert set(PLUGIN_ROOT_ENV_VARS) == expected_vars
     with tempfile.TemporaryDirectory() as td:
         root = make_vault(Path(td) / "plugin")
-        for var_name in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT"):
+        for var_name in PLUGIN_ROOT_ENV_VARS:
             env = {var_name: str(root)}
             for explicit in (None, root):
                 try:

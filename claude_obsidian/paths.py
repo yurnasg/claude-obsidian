@@ -386,7 +386,15 @@ def assert_not_plugin_tree(
     return resolved
 
 
-PLUGIN_ROOT_ENV_VARS = ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT")
+PLUGIN_ROOT_ENV_VARS = (
+    "PLUGIN_ROOT",
+    "CLAUDE_PLUGIN_ROOT",
+    "CURSOR_PLUGIN_ROOT",
+    "COPILOT_PLUGIN_ROOT",
+    "ANTIGRAVITY_PLUGIN_ROOT",
+    "CODEX_PLUGIN_ROOT",
+    "GEMINI_PLUGIN_ROOT",
+)
 
 
 def _plugin_roots_from_env(
