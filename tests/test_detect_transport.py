@@ -109,14 +109,21 @@ class DetectTransportTests(unittest.TestCase):
             vault = base / "vault"
             vault.mkdir()
             pid_file = base / "probe.pid"
-            binary = base / "obsidian"
-            binary.write_text(
-                "#!/bin/sh\n"
-                f"echo $$ > '{pid_file}'\n"
-                "exec sleep 30\n",
-                encoding="utf-8",
-            )
-            binary.chmod(0o755)
+            if os.name == "nt":
+                binary = base / "obsidian.cmd"
+                binary.write_text(
+                    f'@"{sys.executable}" -c "import os, time; from pathlib import Path; Path(r\'{pid_file}\').write_text(str(os.getpid())); time.sleep(30)"\n',
+                    encoding="utf-8",
+                )
+            else:
+                binary = base / "obsidian"
+                binary.write_text(
+                    "#!/bin/sh\n"
+                    f"echo $$ > '{pid_file}'\n"
+                    "exec sleep 30\n",
+                    encoding="utf-8",
+                )
+                binary.chmod(0o755)
             with unittest.mock.patch.object(transport_probe.os, "killpg", None, create=True):
                 started = time.monotonic()
                 ok, reason = transport_probe.probe_selected_vault(
@@ -126,8 +133,12 @@ class DetectTransportTests(unittest.TestCase):
             pid = int(pid_file.read_text().strip())
         self.assertFalse(ok)
         self.assertIn("filesystem fallback", reason)
-        with self.assertRaises(ProcessLookupError):
-            os.kill(pid, 0)
+        if os.name == "nt":
+            from claude_obsidian.transaction import _process_alive
+            self.assertFalse(_process_alive(pid))
+        else:
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
 
     def test_official_probe_handles_spaces_unicode_and_uses_version_subcommand(
         self,

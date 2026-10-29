@@ -33,6 +33,7 @@ from .hook_adapter import emit_session_start, emit_stop_status, force_utf8_stdio
 from .ledgers import LedgerValidationError, migration_bundle, strict_json_loads
 from .lint_engine import lint_vault, render_markdown
 from .mode_config import validate_mode_folders
+from .multi_agent import command_setup_multi_agent
 from .package_validation import validate_package
 from .paths import (
     VaultSelection,
@@ -42,6 +43,8 @@ from .paths import (
     resolve_vault_root,
 )
 from .release import audit_artifact, build_public_artifact
+from .retrieval_setup import command_setup_retrieve
+from .transport import command_transport_detect
 from .transaction import (
     MutationLock,
     TransactionError,
@@ -999,6 +1002,92 @@ def command_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_setup_vault(args: argparse.Namespace) -> int:
+    is_check = getattr(args, "check", False)
+    is_apply = getattr(args, "apply", False)
+    if is_check and is_apply:
+        print("ERR: choose exactly one of --check, --dry-run, or --apply", file=sys.stderr)
+        return 2
+    approved_hash = getattr(args, "approved_plan_sha256", None)
+    if is_apply and not approved_hash:
+        print("ERR: --apply requires --approved-plan-sha256 from the reviewed dry run", file=sys.stderr)
+        return 2
+    vault_str = getattr(args, "vault", None) or getattr(args, "vault_path", None) or os.getcwd()
+    vault_path = Path(vault_str).resolve()
+    if is_check:
+        return command_doctor(argparse.Namespace(vault=str(vault_path)))
+    action = getattr(args, "action", None)
+    if not action or action == "auto":
+        action = "adopt" if vault_path.is_dir() else "init"
+    sub_args = argparse.Namespace(
+        path=str(vault_path),
+        apply=is_apply,
+        force=getattr(args, "force", False),
+        operation_id=getattr(args, "operation_id", None),
+        generated_at=getattr(args, "generated_at", None),
+        approved_plan_sha256=approved_hash,
+    )
+    if action == "init":
+        return command_init(sub_args)
+    return command_adopt(sub_args)
+
+
+def command_setup_mode(args: argparse.Namespace) -> int:
+    if getattr(args, "check", False) or not getattr(args, "mode", None):
+        return command_mode_get(argparse.Namespace(vault=getattr(args, "vault", None)))
+    return command_mode_set(args)
+
+
+def command_setup_dragonscale(args: argparse.Namespace) -> int:
+    return command_extension_dragonscale(args)
+
+
+def command_allocate_address(args: argparse.Namespace) -> int:
+    if getattr(args, "disabled", False) or getattr(args, "mode", None) in {"allocate", "--rebuild"}:
+        print(
+            "ERR LEGACY_ALLOCATOR_READ_ONLY: reserve addresses through one reviewed "
+            "transaction address_requests bundle; direct allocation/rebuild is disabled",
+            file=sys.stderr,
+        )
+        return 2
+    selection = _selection(args)
+    root = selection.root
+    raw = read_vault_regular(root, ".vault-meta/address-counter.txt", limit=64 * 1024)
+    if raw is not None:
+        try:
+            value = raw.decode("ascii").strip()
+        except UnicodeDecodeError:
+            value = ""
+        if not value.isdigit() or not 1 <= int(value) <= 999999:
+            print("ERR INVALID_ADDRESS_COUNTER: counter must contain 1..999999", file=sys.stderr)
+            return 3
+        print(int(value))
+        return 0
+    import re
+    highest = 0
+    wiki = root / "wiki"
+    if wiki.is_dir() and not wiki.is_symlink():
+        for page in sorted(wiki.rglob("*.md")):
+            if page.is_symlink() or not page.is_file():
+                continue
+            try:
+                page.resolve(strict=True).relative_to(wiki.resolve(strict=True))
+                text = page.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                continue
+            lines = text.splitlines()
+            if not lines or lines[0].strip() != "---":
+                continue
+            for line in lines[1:]:
+                if line.strip() == "---":
+                    break
+                match = re.fullmatch(r"address:\s*c-([0-9]{6})\s*", line)
+                if match:
+                    highest = max(highest, int(match.group(1)))
+    print(highest + 1)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="claude-obsidian")
     parser.add_argument("--version", action="version", version=__version__)
@@ -1353,6 +1442,98 @@ def build_parser() -> argparse.ArgumentParser:
         "--as-of", help="Pin provenance freshness audit date (YYYY-MM-DD)"
     )
     checkpoint.set_defaults(handler=command_checkpoint)
+
+    setup_vault = subcommands.add_parser("setup-vault", help="Non-destructive vault initialization or adoption")
+    setup_vault.add_argument("vault_path", nargs="?", default=None, help="Vault directory path")
+    _add_vault_argument(setup_vault)
+    setup_vault.add_argument("--check", action="store_true", help="Check vault readiness")
+    setup_vault.add_argument("--dry-run", action="store_true", help="Preview; default")
+    setup_vault.add_argument("--apply", action="store_true", help="Apply the plan")
+    setup_vault.add_argument("--init", dest="action", action="store_const", const="init")
+    setup_vault.add_argument("--adopt", dest="action", action="store_const", const="adopt")
+    setup_vault.add_argument("--force", action="store_true", help="Replace conflicting files")
+    setup_vault.add_argument("--operation-id")
+    setup_vault.add_argument("--generated-at")
+    _add_approval_argument(setup_vault)
+    setup_vault.set_defaults(handler=command_setup_vault)
+
+    setup_mode = subcommands.add_parser(
+        "setup-mode",
+        help="Configure vault methodology",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    _add_vault_argument(setup_mode)
+    setup_mode.add_argument("--mode", choices=MODE_NAMES)
+    setup_mode.add_argument("--check", action="store_true")
+    setup_mode.add_argument("--apply", action="store_true")
+    setup_mode.add_argument("--operation-id")
+    setup_mode.add_argument(
+        "--generated-at",
+        metavar="ISO-UTC",
+        help="Pin --generated-at for preview;\nrepeat that exact value with reviewed --approved-plan-sha256.",
+    )
+    _add_approval_argument(setup_mode)
+    setup_mode.set_defaults(handler=command_setup_mode)
+
+    setup_dragonscale = subcommands.add_parser(
+        "setup-dragonscale",
+        help="Provision DragonScale compatibility state",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    _add_vault_argument(setup_dragonscale)
+    setup_dragonscale.add_argument("--check", action="store_true")
+    setup_dragonscale.add_argument("--apply", action="store_true")
+    setup_dragonscale.add_argument("--operation-id")
+    setup_dragonscale.add_argument(
+        "--generated-at",
+        metavar="ISO-UTC",
+        help="Pin --generated-at for preview;\nrepeat that exact value with reviewed --approved-plan-sha256.",
+    )
+    _add_approval_argument(setup_dragonscale)
+    setup_dragonscale.set_defaults(handler=command_setup_dragonscale)
+
+    allocate_address = subcommands.add_parser("allocate-address", help="Print next address counter value")
+    _add_vault_argument(allocate_address)
+    allocate_address.add_argument("--peek", action="store_true")
+    allocate_address.add_argument("mode", nargs="?", default="peek")
+    allocate_address.add_argument("--rebuild", dest="disabled", action="store_true")
+    allocate_address.set_defaults(handler=command_allocate_address)
+
+    setup_retrieve = subcommands.add_parser("setup-retrieve", help="Bootstrap retrieval cache")
+    _add_vault_argument(setup_retrieve)
+    setup_retrieve.add_argument("--check", action="store_true")
+    setup_retrieve.add_argument("--apply", action="store_true")
+    setup_retrieve.add_argument("--no-llm", action="store_true")
+    setup_retrieve.add_argument("--allow-egress", action="store_true")
+    setup_retrieve.add_argument("--rebuild", action="store_true")
+    setup_retrieve.add_argument("--allow-remote-ollama", action="store_true")
+    setup_retrieve.set_defaults(handler=command_setup_retrieve)
+
+    transport = subcommands.add_parser("transport", help="Detect and cache Obsidian CLI transport capability")
+    transport_commands = transport.add_subparsers(dest="transport_command", required=True)
+    detect = transport_commands.add_parser("detect", help="Detect CLI transport and write .vault-meta/transport.json")
+    detect.add_argument("vault_path", nargs="?", default=None)
+    _add_vault_argument(detect)
+    detect.add_argument("--peek", action="store_true")
+    detect.add_argument("--force", action="store_true")
+    detect.add_argument("--quiet", action="store_true")
+    detect.set_defaults(handler=command_transport_detect)
+
+    detect_transport = subcommands.add_parser("detect-transport", help="Alias for transport detect")
+    detect_transport.add_argument("vault_path", nargs="?", default=None)
+    _add_vault_argument(detect_transport)
+    detect_transport.add_argument("--peek", action="store_true")
+    detect_transport.add_argument("--force", action="store_true")
+    detect_transport.add_argument("--quiet", action="store_true")
+    detect_transport.set_defaults(handler=command_transport_detect)
+
+    setup_multi_agent = subcommands.add_parser("setup-multi-agent", help="Install Agent Plugins & Skills")
+    setup_multi_agent.add_argument("--check", action="store_true")
+    setup_multi_agent.add_argument("--dry-run", action="store_true")
+    setup_multi_agent.add_argument("--apply", action="store_true")
+    setup_multi_agent.add_argument("--host", action="append", default=[])
+    setup_multi_agent.add_argument("--workspace")
+    setup_multi_agent.set_defaults(handler=command_setup_multi_agent)
     return parser
 
 

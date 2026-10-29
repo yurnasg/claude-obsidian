@@ -18,13 +18,20 @@ from typing import Any, Mapping, Sequence
 
 from .json_utils import parse_finite_json_float
 from .lint_engine import lint_vault
-from .paths import canonical, directory_open_flags, read_open_flags
+from .paths import (
+    assert_unaliased_directory,
+    canonical,
+    directory_open_flags,
+    read_open_flags,
+    supports_confined_dirfd as _supports_confined_dirfd,
+)
 from .transaction import (
     RESULT_SCHEMA,
     MutationLock,
     TransactionError,
     _safe_hash,
     _safe_vault_path,
+    atomic_write,
     safe_operation_id,
     sha256_bytes,
 )
@@ -53,7 +60,7 @@ class CheckpointError(TransactionError):
     exit_code = 4
 
 
-_ACTIVE_ROOT: ContextVar[tuple[Path, int] | None] = ContextVar(
+_ACTIVE_ROOT: ContextVar[tuple[Path, int | None] | None] = ContextVar(
     "claude_obsidian_checkpoint_root",
     default=None,
 )
@@ -329,6 +336,16 @@ class _CheckpointStore:
         self.lock = lock
         self.root = root
         self.operation_id = operation_id
+        if not _supports_confined_dirfd():
+            self.meta_fd = -1
+            self.transactions_fd = -1
+            self.operation_fd = -1
+            if not self.display_directory.is_dir():
+                raise CheckpointError(
+                    "TRANSACTION_RESULT_MISSING",
+                    f"cannot find completed transaction {operation_id}",
+                )
+            return
         self.meta_fd = lock.duplicate_parent_fd()
         self.transactions_fd = -1
         self.operation_fd = -1
@@ -372,6 +389,9 @@ class _CheckpointStore:
 
     def _assert_current(self) -> None:
         self.lock.assert_runtime_namespace_current()
+        if not _supports_confined_dirfd():
+            assert_unaliased_directory(self.display_directory)
+            return
         try:
             transactions = os.stat(
                 "transactions", dir_fd=self.meta_fd, follow_symlinks=False
@@ -402,6 +422,9 @@ class _CheckpointStore:
             )
 
     def exists(self, name: str) -> bool:
+        if not _supports_confined_dirfd():
+            target = self.display_directory / name
+            return target.is_file()
         try:
             metadata = os.stat(name, dir_fd=self.operation_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -417,6 +440,14 @@ class _CheckpointStore:
         return True
 
     def read(self, name: str, *, label: str, code: str) -> dict[str, Any]:
+        if not _supports_confined_dirfd():
+            target = self.display_directory / name
+            if not target.is_file():
+                raise CheckpointError(code, f"cannot find {label}")
+            raw = target.read_bytes()
+            if len(raw) > MAX_CHECKPOINT_STATE_BYTES:
+                raise CheckpointError(code, f"{label} is not a bounded regular file")
+            return _strict_json_object(raw, label=label, code=code)
         descriptor = -1
         try:
             before = os.stat(name, dir_fd=self.operation_fd, follow_symlinks=False)
@@ -463,6 +494,10 @@ class _CheckpointStore:
                 "CHECKPOINT_STATE_TOO_LARGE",
                 f"checkpoint state exceeds {MAX_CHECKPOINT_STATE_BYTES} bytes",
             )
+        if not _supports_confined_dirfd():
+            atomic_write(self.display_directory / name, raw, mode=0o600)
+            self._assert_current()
+            return
         temporary = f".{name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
         descriptor = -1
         try:
@@ -499,6 +534,13 @@ class _CheckpointStore:
 
     def unlink(self, name: str) -> None:
         self._assert_current()
+        if not _supports_confined_dirfd():
+            target = self.display_directory / name
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                return
+            return
         try:
             os.unlink(name, dir_fd=self.operation_fd)
         except FileNotFoundError:
@@ -511,6 +553,22 @@ class _CheckpointStore:
         self._assert_current()
 
     def other_pending(self) -> str | None:
+        if not _supports_confined_dirfd():
+            tx_root = self.root / ".vault-meta" / "transactions"
+            if not tx_root.is_dir():
+                return None
+            try:
+                names = sorted(entry.name for entry in tx_root.iterdir() if entry.is_dir())
+            except OSError as exc:
+                raise CheckpointError(
+                    "CORRUPT_CHECKPOINT", f"cannot list transaction state: {exc}"
+                ) from exc
+            for name in names:
+                if name == self.operation_id:
+                    continue
+                if (tx_root / name / PENDING_NAME).is_file():
+                    return name
+            return None
         try:
             with os.scandir(self.transactions_fd) as entries:
                 names: list[str] = []
@@ -1222,8 +1280,8 @@ def checkpoint_operation(
             "INVALID_AS_OF", "as_of must be an ISO date, date object, or null"
         )
     with MutationLock(root) as mutation_lock:
-        root_fd = mutation_lock.duplicate_root_fd()
-        active_token: Token[tuple[Path, int] | None] = _ACTIVE_ROOT.set((root, root_fd))
+        root_fd = mutation_lock.duplicate_root_fd() if _supports_confined_dirfd() else None
+        active_token: Token[tuple[Path, int | None] | None] = _ACTIVE_ROOT.set((root, root_fd))
         try:
             with _CheckpointStore(mutation_lock, root, operation_id) as store:
                 _repository_head(root)
@@ -1382,4 +1440,5 @@ def checkpoint_operation(
                 return _resume_pending(root, store, validated)
         finally:
             _ACTIVE_ROOT.reset(active_token)
-            os.close(root_fd)
+            if root_fd is not None:
+                os.close(root_fd)

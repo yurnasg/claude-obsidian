@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,16 @@ class SetupRetrieveTests(unittest.TestCase):
         return vault
 
     def invoke(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        if os.name == "nt":
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "claude-obsidian.py"), "setup-retrieve", *arguments],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=20,
+            )
         return subprocess.run(
             ["bash", str(SCRIPT), *arguments],
             cwd=ROOT,

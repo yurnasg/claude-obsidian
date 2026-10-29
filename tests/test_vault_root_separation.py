@@ -84,6 +84,16 @@ def _run_allocator(
     cwd: Path,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if os.name == "nt":
+        return subprocess.run(
+            [sys.executable, str(CORE_CLI), "allocate-address", *arguments],
+            cwd=cwd,
+            env=env or _environment(),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
     return subprocess.run(
         ["bash", str(SCRIPTS / "allocate-address.sh"), *arguments],
         cwd=cwd,

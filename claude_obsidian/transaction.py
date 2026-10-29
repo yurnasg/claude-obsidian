@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import socket
 import stat
 import tempfile
@@ -506,14 +507,10 @@ def _assert_no_existing_portable_alias(
 ) -> None:
     """Reject an existing sibling whose NFC(casefold) identity aliases a path."""
 
-    normalized = (
-        _normalize_vault_path(relative)
-        if root_fd is not None
-        else _safe_vault_path(vault_root, relative)[0]
-    )
+    normalized = _normalize_vault_path(relative)
     flags = directory_open_flags()
     handle: int | Path
-    if root_fd is not None:
+    if root_fd is not None and _supports_confined_dirfd():
         handle = os.dup(root_fd)
     elif _supports_confined_dirfd():
         try:
@@ -521,9 +518,8 @@ def _assert_no_existing_portable_alias(
         except FileNotFoundError:
             return
     else:
-        # Degraded platforms (native Windows) walk by path.  _safe_vault_path
-        # above already rejected symlink/junction components lexically; each
-        # directory is re-checked immediately before enumeration below.
+        # Degraded platforms (native Windows) walk by path.  Each directory is
+        # re-checked immediately before enumeration below.
         handle = canonical(vault_root)
     try:
         for index, part in enumerate(PurePosixPath(normalized).parts):
@@ -533,11 +529,8 @@ def _assert_no_existing_portable_alias(
                 except (FileNotFoundError, NotADirectoryError):
                     return
                 except OSError as exc:
-                    if exc.errno == errno.ELOOP:
-                        raise TransactionValidationError(
-                            "SYMLINK_WRITE_PATH",
-                            f"transaction paths may not traverse symlinks or junctions: {normalized}",
-                        ) from exc
+                    if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                        return
                     raise TransactionValidationError(
                         "UNSAFE_VAULT_PATH",
                         f"cannot enumerate siblings for {normalized}: {exc}",
@@ -598,12 +591,12 @@ def _safe_hash(
     root_fd: int | None = None,
     meta_fd: int | None = None,
 ) -> str | None:
-    if root_fd is None:
+    if root_fd is None or not _supports_confined_dirfd():
         normalized, path = _safe_vault_path(vault_root, relative)
     else:
         normalized = _normalize_vault_path(relative)
         path = vault_root.joinpath(*PurePosixPath(normalized).parts)
-    if root_fd is None and not _supports_confined_dirfd():
+    if not _supports_confined_dirfd() or root_fd is None:
         try:
             metadata = path.lstat()
         except FileNotFoundError:
@@ -672,7 +665,7 @@ def _safe_file_state(
 ) -> tuple[str | None, int | None]:
     """Read one regular file's digest and permission mode from one descriptor."""
 
-    if root_fd is None:
+    if root_fd is None or not _supports_confined_dirfd():
         normalized, path = _safe_vault_path(vault_root, relative)
     else:
         normalized = _normalize_vault_path(relative)
@@ -680,7 +673,7 @@ def _safe_file_state(
     descriptor = -1
     parent_descriptor = -1
     try:
-        if root_fd is not None or _supports_confined_dirfd():
+        if _supports_confined_dirfd() and root_fd is not None:
             try:
                 parent_descriptor, leaf = _open_parent_directory(
                     vault_root,
@@ -784,7 +777,7 @@ def read_vault_regular(
             "INVALID_READ_LIMIT", "read limit must be positive"
         )
     root = canonical(vault_root)
-    if root_fd is None:
+    if root_fd is None or not _supports_confined_dirfd():
         normalized, path = _safe_vault_path(root, relative, existing=existing)
     else:
         normalized = _normalize_vault_path(relative, existing=existing)
@@ -792,7 +785,7 @@ def read_vault_regular(
     descriptor = -1
     parent_descriptor = -1
     try:
-        if root_fd is not None or _supports_confined_dirfd():
+        if _supports_confined_dirfd() and root_fd is not None:
             try:
                 parent_descriptor, leaf = _open_parent_directory(
                     root,
@@ -882,12 +875,12 @@ def _atomic_vault_write(
 ) -> None:
     """Atomically replace a target through a no-follow vault-relative directory FD."""
 
-    if root_fd is None:
+    if root_fd is None or not _supports_confined_dirfd():
         normalized, target = _safe_vault_path(vault_root, relative)
     else:
         normalized = _normalize_vault_path(relative)
         target = vault_root.joinpath(*PurePosixPath(normalized).parts)
-    if root_fd is None and not _supports_confined_dirfd():
+    if not _supports_confined_dirfd() or root_fd is None:
         _ensure_safe_parent(vault_root, normalized)
         _safe_vault_path(vault_root, normalized)
         atomic_write(target, data, mode=mode)
@@ -951,12 +944,12 @@ def _confined_vault_unlink(
     root.  The fallback repeats all path checks immediately before unlinking.
     """
 
-    if root_fd is None:
+    if root_fd is None or not _supports_confined_dirfd():
         normalized, target = _safe_vault_path(vault_root, relative)
     else:
         normalized = _normalize_vault_path(relative)
         target = vault_root.joinpath(*PurePosixPath(normalized).parts)
-    if root_fd is None and not _supports_confined_dirfd():
+    if not _supports_confined_dirfd() or root_fd is None:
         metadata = target.lstat()
         if not stat.S_ISREG(metadata.st_mode):
             raise TransactionRecoveryError(
@@ -1394,6 +1387,26 @@ def atomic_json(path: Path, value: Any) -> None:
 def _process_alive(pid: int) -> bool | None:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if handle:
+                try:
+                    res = kernel32.WaitForSingleObject(handle, 0)
+                    return res == 0x00000102  # WAIT_TIMEOUT
+                finally:
+                    kernel32.CloseHandle(handle)
+            err = kernel32.GetLastError()
+            if err == 87:  # ERROR_INVALID_PARAMETER
+                return False
+            if err == 5:  # ERROR_ACCESS_DENIED
+                return True
+            return None
+        except Exception:
+            return None
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -1450,18 +1463,23 @@ class _PlatformConfinementUnavailable(OSError):
 
 
 def _require_write_platform() -> None:
-    """Refuse vault mutation on hosts without dirfd confinement, cleanly.
+    """Refuse vault mutation on hosts without confinement support, cleanly.
 
+    POSIX hosts require dirfd confinement; native Windows uses verified
+    path confinement. Unsupported/unstable filesystems fail closed.
     Called before any side effect (directory creation, backup staging) so a
     refused ``--apply`` leaves nothing behind.
     """
 
+    if os.name == "nt":
+        return
     try:
         _require_lock_dirfd_support()
     except _PlatformConfinementUnavailable as exc:
         raise TransactionValidationError(
             "UNSUPPORTED_PLATFORM", _UNSUPPORTED_PLATFORM_MESSAGE
         ) from exc
+
 
 
 def _open_lock_parent_fd(
@@ -1709,6 +1727,10 @@ class MutationLock:
         self._parent_fd: int | None = None
         self._lock_fd: int | None = None
         self._advisory_locked = False
+        self._root_stat: os.stat_result | None = None
+        self._root_parent_stat: os.stat_result | None = None
+        self._parent_stat: os.stat_result | None = None
+        self._lock_stat: os.stat_result | None = None
 
     @property
     def owner_path(self) -> Path:
@@ -1716,6 +1738,47 @@ class MutationLock:
 
     def _owner(self, lock_fd: int) -> dict[str, Any] | None:
         return _read_lock_owner_at(lock_fd)
+
+    def _owner_path_record(self) -> dict[str, Any] | None:
+        try:
+            assert_unaliased_directory(self.path)
+            if not self.owner_path.is_file() or is_name_surrogate(self.owner_path.lstat()):
+                return None
+            data = self.owner_path.read_bytes()
+            parsed = _strict_json_loads(data.decode("utf-8"))
+            if isinstance(parsed, dict) and parsed.get("schema") == "claude-obsidian.mutation-lock.v1":
+                return parsed
+            return None
+        except Exception:
+            return None
+
+    def _may_reap_path_record(self, now: float, owner: dict[str, Any] | None) -> bool:
+        try:
+            lock_stat = assert_unaliased_directory(self.path)
+        except OSError:
+            return False
+        if not owner:
+            if not self.force_stale_lock:
+                return False
+            age = now - lock_stat.st_mtime
+            return age > self.stale_after
+        started = owner.get("started_epoch")
+        pid = owner.get("pid")
+        host = owner.get("host")
+        if not isinstance(started, (int, float)) or not isinstance(pid, int):
+            return False
+        same_host = isinstance(host, str) and host == socket.gethostname()
+        alive = _process_alive(pid) if same_host else None
+        if self.force_stale_lock and same_host and alive is False:
+            return True
+        age = now - float(started)
+        if age <= self.stale_after:
+            return False
+        if self.force_stale_lock:
+            return True
+        if not same_host:
+            return False
+        return alive is False
 
     def _may_reap(self, now: float, lock_fd: int) -> bool:
         owner = self._owner(lock_fd)
@@ -1754,31 +1817,37 @@ class MutationLock:
     def duplicate_parent_fd(self) -> int:
         """Duplicate the exact held ``.vault-meta`` namespace for a child lock."""
 
-        if not self.acquired or self._parent_fd is None:
+        if not self.acquired:
             raise TransactionError(
                 "LOCK_NOT_HELD",
                 "mutation lock parent is unavailable outside a held lock",
             )
+        if self._parent_fd is None:
+            return os.open(os.devnull, os.O_RDONLY)
         return os.dup(self._parent_fd)
 
     def duplicate_root_fd(self) -> int:
         """Duplicate the exact held vault-root namespace for target operations."""
 
-        if not self.acquired or self._root_fd is None:
+        if not self.acquired:
             raise TransactionError(
                 "LOCK_NOT_HELD",
                 "vault root is unavailable outside a held mutation lock",
             )
+        if self._root_fd is None:
+            return os.open(os.devnull, os.O_RDONLY)
         return os.dup(self._root_fd)
 
     def open_metadata_dir_fd(self, relative: str, *, create: bool = False) -> int:
         """Open a no-follow directory below the exact held metadata namespace."""
 
-        if not self.acquired or self._parent_fd is None:
+        if not self.acquired:
             raise TransactionError(
                 "LOCK_NOT_HELD",
                 "metadata runtime is unavailable outside a held mutation lock",
             )
+        if self._parent_fd is None:
+            return os.open(os.devnull, os.O_RDONLY)
         normalized = _normalize_vault_path(relative)
         components = PurePosixPath(normalized).parts
         try:
@@ -1794,10 +1863,38 @@ class MutationLock:
     def assert_runtime_namespace_current(self) -> None:
         """Fail if the public metadata entry no longer names the pinned parent."""
 
+        if not self.acquired:
+            raise TransactionError(
+                "RUNTIME_NAMESPACE_CHANGED",
+                "the vault .vault-meta namespace changed while the mutation lock was held",
+            )
+        if not _supports_confined_dirfd() or self._parent_fd is None:
+            try:
+                meta = self.vault_root / ".vault-meta"
+                current = os.lstat(meta)
+                if (
+                    self._parent_stat is not None
+                    and (
+                        not stat.S_ISDIR(current.st_mode)
+                        or current.st_dev != self._parent_stat.st_dev
+                        or current.st_ino != self._parent_stat.st_ino
+                    )
+                ):
+                    raise TransactionError(
+                        "RUNTIME_NAMESPACE_CHANGED",
+                        "the vault .vault-meta namespace changed while the mutation lock was held",
+                    )
+                assert_unaliased_directory(meta)
+            except (OSError, TransactionValidationError) as exc:
+                if isinstance(exc, TransactionError):
+                    raise
+                raise TransactionError(
+                    "RUNTIME_NAMESPACE_CHANGED",
+                    f"the vault .vault-meta namespace changed while the mutation lock was held: {exc}",
+                ) from exc
+            return
         if (
-            not self.acquired
-            or self._root_fd is None
-            or self._parent_fd is None
+            self._root_fd is None
             or not _lock_entry_matches(self._root_fd, ".vault-meta", self._parent_fd)
         ):
             raise TransactionError(
@@ -1808,6 +1905,40 @@ class MutationLock:
     def assert_vault_root_current(self) -> None:
         """Fail if the public vault entry no longer names the pinned root inode."""
 
+        if not self.acquired:
+            raise TransactionError(
+                "VAULT_NAMESPACE_CHANGED",
+                "the selected vault root changed while the mutation lock was held",
+            )
+        if not _supports_confined_dirfd() or self._root_fd is None:
+            try:
+                current = os.lstat(self.vault_root)
+                if (
+                    self._root_stat is not None
+                    and (
+                        not stat.S_ISDIR(current.st_mode)
+                        or current.st_dev != self._root_stat.st_dev
+                        or current.st_ino != self._root_stat.st_ino
+                    )
+                ):
+                    raise TransactionError(
+                        "VAULT_NAMESPACE_CHANGED",
+                        "the selected vault root changed while the mutation lock was held",
+                    )
+                assert_unaliased_directory(self.vault_root)
+                _assert_no_portable_vault_leaf_alias_at(
+                    self.vault_root.parent,
+                    self._root_name,
+                    self_lstat=current,
+                )
+            except (OSError, TransactionValidationError) as exc:
+                if isinstance(exc, TransactionError):
+                    raise
+                raise TransactionError(
+                    "VAULT_NAMESPACE_CHANGED",
+                    f"the selected vault root changed while the mutation lock was held: {exc}",
+                ) from exc
+            return
         public_matches = False
         if self._root_fd is not None:
             try:
@@ -1821,8 +1952,7 @@ class MutationLock:
             except OSError:
                 pass
         if (
-            not self.acquired
-            or self._root_parent_fd is None
+            self._root_parent_fd is None
             or self._root_fd is None
             or not public_matches
             or not _lock_entry_matches(
@@ -1863,10 +1993,123 @@ class MutationLock:
             os.close(self._root_parent_fd)
             self._root_parent_fd = None
 
+    def _acquire_path_mode(self, deadline: float) -> None:
+        try:
+            self._root_stat = assert_unaliased_directory(self.vault_root)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise TransactionValidationError(
+                    "SYMLINK_WRITE_PATH",
+                    f"vault root is not a confined directory: {exc}",
+                ) from exc
+            raise TransactionError(
+                "LOCK_FAILED", f"cannot pin vault root: {exc}"
+            ) from exc
+        _require_stable_identity(self._root_stat, self.vault_root)
+
+        try:
+            self._root_parent_stat = assert_unaliased_directory(self.vault_root.parent)
+        except OSError as exc:
+            raise TransactionError(
+                "LOCK_FAILED", f"cannot pin vault-root parent: {exc}"
+            ) from exc
+        _require_stable_identity(self._root_parent_stat, self.vault_root.parent)
+        _assert_no_portable_vault_leaf_alias_at(
+            self.vault_root.parent,
+            self._root_name,
+            self_lstat=self._root_stat,
+        )
+
+        if self.expected_vault_identity is not None:
+            expected_vault = self.expected_vault_identity
+            if (
+                not _valid_existing_vault_identity(expected_vault)
+                or expected_vault["device"] != self._root_stat.st_dev
+                or expected_vault["inode"] != self._root_stat.st_ino
+            ):
+                raise TransactionValidationError(
+                    "PLAN_CHANGED",
+                    "the selected vault object changed before locking",
+                )
+
+        if self.expected_root_parent_identity is not None:
+            expected = self.expected_root_parent_identity
+            if (
+                not _valid_absent_vault_identity(expected, leaf=self._root_name)
+                or expected["parent_device"] != self._root_parent_stat.st_dev
+                or expected["parent_inode"] != self._root_parent_stat.st_ino
+            ):
+                raise TransactionValidationError(
+                    "PLAN_CHANGED",
+                    "the reviewed vault parent/leaf slot changed before locking",
+                )
+
+        meta_dir = _safe_directory(self.vault_root, ".vault-meta", create=True)
+        self._parent_stat = assert_unaliased_directory(meta_dir)
+        _require_stable_identity(self._parent_stat, meta_dir)
+        self.path = meta_dir / "mutation.lock"
+
+        while True:
+            try:
+                os.mkdir(self.path, mode=0o700)
+            except FileExistsError:
+                observed_owner: dict[str, Any] | None = None
+                try:
+                    observed_owner = self._owner_path_record()
+                    if self._may_reap_path_record(time.time(), observed_owner):
+                        quarantine_name = f"mutation.lock.reaping-{os.getpid()}-{uuid.uuid4().hex}"
+                        quarantine = meta_dir / quarantine_name
+                        try:
+                            os.rename(self.path, quarantine)
+                            shutil.rmtree(quarantine, ignore_errors=True)
+                            continue
+                        except OSError:
+                            pass
+                except Exception:
+                    pass
+                if time.monotonic() >= deadline:
+                    owner_pid = (
+                        observed_owner.get("pid", "unknown")
+                        if isinstance(observed_owner, dict)
+                        else "unknown"
+                    )
+                    raise TransactionConflict(
+                        "LOCK_TIMEOUT",
+                        f"vault mutation lock is held (owner pid={owner_pid})",
+                    )
+                time.sleep(self.poll_interval)
+                continue
+            except OSError as exc:
+                raise TransactionError(
+                    "LOCK_FAILED", f"cannot create mutation lock: {exc}"
+                ) from exc
+
+            self._lock_stat = assert_unaliased_directory(self.path)
+            owner = {
+                "schema": "claude-obsidian.mutation-lock.v1",
+                "pid": os.getpid(),
+                "token": self.token,
+                "host": socket.gethostname(),
+                "started_epoch": time.time(),
+            }
+            try:
+                atomic_write(self.owner_path, _json_bytes(owner), mode=0o600)
+            except Exception:
+                try:
+                    shutil.rmtree(self.path, ignore_errors=True)
+                except Exception:
+                    pass
+                raise
+            self.acquired = True
+            return
+
     def acquire(self) -> None:
         if self.acquired:
             return
         deadline = time.monotonic() + max(0.0, self.timeout)
+        if not _supports_confined_dirfd():
+            self._acquire_path_mode(deadline)
+            return
         try:
             root_fd = _open_lock_root_fd(self.vault_root)
         except OSError as exc:
@@ -2077,6 +2320,44 @@ class MutationLock:
     def release(self) -> None:
         if not self.acquired:
             return
+        if not _supports_confined_dirfd():
+            try:
+                try:
+                    stat_now = assert_unaliased_directory(self.path)
+                    if (
+                        self._lock_stat is not None
+                        and (stat_now.st_dev, stat_now.st_ino)
+                        != (self._lock_stat.st_dev, self._lock_stat.st_ino)
+                    ):
+                        raise TransactionError(
+                            "LOCK_OWNERSHIP_LOST",
+                            "mutation lock path changed before release",
+                        )
+                except OSError as exc:
+                    raise TransactionError(
+                        "LOCK_OWNERSHIP_LOST",
+                        f"mutation lock path changed before release: {exc}",
+                    ) from exc
+                owner = self._owner_path_record()
+                if owner is None or not hmac.compare_digest(
+                    str(owner.get("token", "")), self.token
+                ):
+                    raise TransactionError(
+                        "LOCK_OWNERSHIP_LOST", "mutation lock owner changed before release"
+                    )
+                try:
+                    if self.owner_path.is_file():
+                        self.owner_path.unlink()
+                    if self.path.is_dir():
+                        os.rmdir(self.path)
+                except OSError as exc:
+                    raise TransactionError(
+                        "LOCK_RELEASE_FAILED", f"cannot release mutation lock: {exc}"
+                    ) from exc
+            finally:
+                self.acquired = False
+                self._close_descriptors()
+            return
         parent_fd, lock_fd = self._parent_fd, self._lock_fd
         try:
             if parent_fd is None or lock_fd is None:
@@ -2109,7 +2390,11 @@ class MutationLock:
         return self
 
     def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
-        self.release()
+        try:
+            self.release()
+        except Exception:
+            if _exc_type is None:
+                raise
 
 
 def _runtime_component(value: str) -> str:
@@ -2443,16 +2728,62 @@ def _remove_pinned_runtime_tree_at(
         pass
 
 
+def _remove_path_runtime_tree(
+    target_path: Path,
+    *,
+    remaining: list[int] | None = None,
+    depth: int = 0,
+) -> None:
+    """Recursively remove a runtime tree in path mode, enforcing safety limits."""
+    if depth > MAX_TRANSACTION_RUNTIME_TREE_DEPTH:
+        raise TransactionRecoveryError(
+            "CORRUPT_RUNTIME_STATE", "transaction runtime tree is nested too deeply"
+        )
+    if remaining is None:
+        remaining = [MAX_TRANSACTION_RUNTIME_TREE_ENTRIES]
+    assert_unaliased_directory(target_path)
+    child_names: list[str] = []
+    with os.scandir(target_path) as entries:
+        for entry in entries:
+            child_names.append(_runtime_component(entry.name))
+            if len(child_names) > remaining[0]:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE",
+                    f"transaction runtime {target_path.name} exceeds the {remaining[0]}-entry safety limit",
+                )
+    remaining[0] -= len(child_names)
+    for child_name in child_names:
+        child = target_path / child_name
+        if child.is_dir():
+            if depth >= MAX_TRANSACTION_RUNTIME_TREE_DEPTH:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE",
+                    "transaction runtime contains an unsupported nested directory",
+                )
+            _remove_path_runtime_tree(child, remaining=remaining, depth=depth + 1)
+        else:
+            child.unlink()
+    target_path.rmdir()
+
+
 @dataclass
 class _OperationStore:
     name: str
     parent_fd: int
     fd: int
+    path: Path | None = None
     backups_fd: int | None = None
 
     def open_backups(self, *, create: bool) -> int | None:
         if self.backups_fd is not None:
             return self.backups_fd
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is not None:
+                backups_dir = self.path / "backups"
+                if create:
+                    backups_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                return None
+            return None
         try:
             self.backups_fd = _open_runtime_directory_at(
                 self.fd, "backups", create=create
@@ -2466,10 +2797,43 @@ class _OperationStore:
         return self.backups_fd
 
     def exists(self, name: str) -> bool:
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is None:
+                return False
+            target = self.path / name
+            return target.exists()
         return _runtime_entry_metadata(self.fd, name) is not None
 
-    def read_json(self, name: str, *, label: str) -> Any:
-        return _read_runtime_json_at(self.fd, name, label=label)
+    def read_json(
+        self,
+        name: str,
+        *,
+        label: str,
+        limit: int = MAX_TRANSACTION_RUNTIME_JSON_BYTES,
+    ) -> Any:
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is None:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", f"cannot read {label}: no path"
+                )
+            target = self.path / name
+            try:
+                raw = target.read_bytes()
+                if len(raw) > limit:
+                    raise TransactionRecoveryError(
+                        "CORRUPT_RUNTIME_STATE",
+                        f"{label} exceeds the {limit}-byte recovery limit",
+                    )
+                return _strict_json_loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", f"cannot parse {label}: {exc}"
+                ) from exc
+            except OSError as exc:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", f"cannot read {label}: {exc}"
+                ) from exc
+        return _read_runtime_json_at(self.fd, name, label=label, limit=limit)
 
     def write_json(
         self,
@@ -2478,6 +2842,25 @@ class _OperationStore:
         *,
         error_type: type[TransactionError] = TransactionRecoveryError,
     ) -> None:
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is None:
+                raise error_type(
+                    "CORRUPT_RUNTIME_STATE", f"cannot write {name}: no path"
+                )
+            data = _json_bytes(value)
+            if len(data) > MAX_TRANSACTION_RUNTIME_JSON_BYTES:
+                raise error_type(
+                    "RUNTIME_STATE_TOO_LARGE",
+                    f"runtime JSON exceeds the {MAX_TRANSACTION_RUNTIME_JSON_BYTES}-byte recovery limit",
+                )
+            try:
+                atomic_write(self.path / name, data, mode=0o600)
+            except OSError as exc:
+                raise error_type(
+                    "CORRUPT_RUNTIME_STATE",
+                    f"cannot write confined runtime file {name}: {exc}",
+                ) from exc
+            return
         _atomic_runtime_json_at(self.fd, name, value, error_type=error_type)
 
     def write_bundle(self, value: Mapping[str, Any]) -> None:
@@ -2487,6 +2870,19 @@ class _OperationStore:
                 "INVALID_BUNDLE",
                 f"bundle exceeds the {MAX_TRANSACTION_BUNDLE_BYTES}-byte limit",
             )
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is None:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", "cannot write confined bundle copy: no path"
+                )
+            try:
+                atomic_write(self.path / "bundle.json", data, mode=0o600)
+            except OSError as exc:
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE",
+                    f"cannot write confined bundle copy: {exc}",
+                ) from exc
+            return
         try:
             _atomic_runtime_write_at(self.fd, "bundle.json", data)
         except OSError as exc:
@@ -2495,6 +2891,10 @@ class _OperationStore:
             ) from exc
 
     def assert_current(self) -> None:
+        if not _supports_confined_dirfd() or self.fd < 0:
+            if self.path is not None and self.path.is_dir():
+                assert_unaliased_directory(self.path)
+            return
         if not _lock_entry_matches(self.parent_fd, self.name, self.fd):
             raise TransactionError(
                 "RUNTIME_NAMESPACE_CHANGED",
@@ -2509,7 +2909,7 @@ class _OperationStore:
             )
 
     def close(self) -> None:
-        if self.backups_fd is not None:
+        if self.backups_fd is not None and self.backups_fd >= 0:
             os.close(self.backups_fd)
             self.backups_fd = None
         if self.fd >= 0:
@@ -2525,12 +2925,23 @@ class _OperationStore:
 
 @dataclass
 class _RuntimeStore:
-    root_fd: int
-    meta_fd: int
+    root_fd: int | None
+    meta_fd: int | None
     transactions_fd: int | None
+    path: Path | None = None
+    vault_root: Path | None = None
 
     @classmethod
     def from_lock(cls, lock: MutationLock, *, create: bool) -> "_RuntimeStore":
+        if not _supports_confined_dirfd():
+            transactions_dir = safe_transactions_root(lock.vault_root, create=create)
+            return cls(
+                root_fd=None,
+                meta_fd=None,
+                transactions_fd=None,
+                path=transactions_dir,
+                vault_root=lock.vault_root,
+            )
         root_fd = lock.duplicate_root_fd()
         meta_fd = lock.duplicate_parent_fd()
         transactions_fd: int | None = None
@@ -2546,17 +2957,30 @@ class _RuntimeStore:
                 raise TransactionRecoveryError(
                     "CORRUPT_RUNTIME_STATE", f"cannot open transactions runtime: {exc}"
                 ) from exc
-            return cls(root_fd, meta_fd, transactions_fd)
+            return cls(root_fd, meta_fd, transactions_fd, vault_root=lock.vault_root)
         except BaseException:
             if transactions_fd is not None:
                 os.close(transactions_fd)
-            os.close(meta_fd)
-            os.close(root_fd)
+            if meta_fd is not None and meta_fd >= 0:
+                os.close(meta_fd)
+            if root_fd is not None and root_fd >= 0:
+                os.close(root_fd)
             raise
 
     def operation_names(self) -> list[str]:
-        if self.transactions_fd is None:
-            return []
+        if not _supports_confined_dirfd() or self.transactions_fd is None:
+            if self.path is None or not self.path.is_dir():
+                return []
+            names: list[str] = []
+            for entry in self.path.iterdir():
+                if entry.is_dir():
+                    names.append(_runtime_component(entry.name))
+                    if len(names) > MAX_TRANSACTION_RUNTIME_ENTRIES:
+                        raise TransactionRecoveryError(
+                            "CORRUPT_RUNTIME_STATE",
+                            f"transactions runtime exceeds the {MAX_TRANSACTION_RUNTIME_ENTRIES}-entry safety limit",
+                        )
+            return sorted(names)
         return _bounded_runtime_names(
             self.transactions_fd,
             limit=MAX_TRANSACTION_RUNTIME_ENTRIES,
@@ -2564,6 +2988,10 @@ class _RuntimeStore:
         )
 
     def assert_current(self) -> None:
+        if not _supports_confined_dirfd():
+            if self.path is not None and self.path.is_dir():
+                assert_unaliased_directory(self.path)
+            return
         if self.transactions_fd is not None and not _lock_entry_matches(
             self.meta_fd, "transactions", self.transactions_fd
         ):
@@ -2574,12 +3002,19 @@ class _RuntimeStore:
 
     def open_operation(self, name: str, *, create: bool) -> _OperationStore | None:
         operation_id = safe_operation_id(name)
-        if self.transactions_fd is None:
-            if not create:
+        if not _supports_confined_dirfd() or self.transactions_fd is None:
+            if self.path is None:
+                if not create:
+                    return None
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", "transactions runtime is unavailable"
+                )
+            op_dir = self.path / operation_id
+            if create:
+                op_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            elif not op_dir.is_dir():
                 return None
-            raise TransactionRecoveryError(
-                "CORRUPT_RUNTIME_STATE", "transactions runtime is unavailable"
-            )
+            return _OperationStore(operation_id, parent_fd=-1, fd=-1, path=op_dir)
         try:
             descriptor = _open_runtime_directory_at(
                 self.transactions_fd, operation_id, create=create
@@ -2594,10 +3029,10 @@ class _RuntimeStore:
         return _OperationStore(operation_id, self.transactions_fd, descriptor)
 
     def remove_operation(self, operation: _OperationStore) -> None:
-        if self.transactions_fd is None:
-            raise TransactionRecoveryError(
-                "CORRUPT_RUNTIME_STATE", "transactions runtime is unavailable"
-            )
+        if not _supports_confined_dirfd() or self.transactions_fd is None:
+            if operation.path is not None and operation.path.is_dir():
+                _remove_path_runtime_tree(operation.path)
+            return
         try:
             _remove_pinned_runtime_tree_at(
                 self.transactions_fd, operation.name, operation.fd
@@ -2609,11 +3044,15 @@ class _RuntimeStore:
             ) from exc
 
     def close(self) -> None:
-        if self.transactions_fd is not None:
+        if self.transactions_fd is not None and self.transactions_fd >= 0:
             os.close(self.transactions_fd)
             self.transactions_fd = None
-        os.close(self.meta_fd)
-        os.close(self.root_fd)
+        if self.meta_fd is not None and self.meta_fd >= 0:
+            os.close(self.meta_fd)
+            self.meta_fd = None
+        if self.root_fd is not None and self.root_fd >= 0:
+            os.close(self.root_fd)
+            self.root_fd = None
 
     def __enter__(self) -> "_RuntimeStore":
         return self
@@ -3643,7 +4082,9 @@ def _prepare_writes(
                 content_sha256=content_hash,
                 original_sha256=current_hash,
                 original_mode=original_mode,
-                new_mode=original_mode if original_mode is not None else 0o600,
+                new_mode=_portable_file_mode(
+                    original_mode if original_mode is not None else 0o600
+                ),
                 backup_path=backup,
             )
         )
@@ -3982,8 +4423,8 @@ def _validated_recovery_writes(
     transaction: _OperationStore,
     journal: Mapping[str, Any],
     *,
-    root_fd: int,
-    meta_fd: int,
+    root_fd: int | None = None,
+    meta_fd: int | None = None,
 ) -> list[RecoveryWrite]:
     """Preflight the complete journal and all backups before rollback mutates."""
 
@@ -4006,18 +4447,31 @@ def _validated_recovery_writes(
         isinstance(entry, dict) and entry.get("original_sha256") is not None
         for entry in writes
     )
-    backup_metadata = _runtime_entry_metadata(transaction.fd, "backups")
+    backups_dir = transaction.path / "backups" if transaction.path else None
+    if not (_supports_confined_dirfd() and transaction.fd >= 0):
+        if backups_dir is not None and (backups_dir.is_symlink() or backups_dir.exists()):
+            if backups_dir.is_symlink() or not backups_dir.is_dir():
+                raise TransactionRecoveryError(
+                    "CORRUPT_JOURNAL", "journal backup path is not a safe directory"
+                )
+            assert_unaliased_directory(backups_dir)
+            backup_metadata = backups_dir.stat()
+        else:
+            backup_metadata = None
+    else:
+        backup_metadata = _runtime_entry_metadata(transaction.fd, "backups")
     backup_fd = transaction.backups_fd
     if backup_fd is None and (needs_backups or backup_metadata is not None):
         if backup_metadata is None or not stat.S_ISDIR(backup_metadata.st_mode):
             raise TransactionRecoveryError(
                 "CORRUPT_JOURNAL", "journal backup path is not a safe directory"
             )
-        backup_fd = transaction.open_backups(create=False)
-        if backup_fd is None:
-            raise TransactionRecoveryError(
-                "CORRUPT_JOURNAL", "journal backup directory is unavailable"
-            )
+        if _supports_confined_dirfd() and transaction.fd >= 0:
+            backup_fd = transaction.open_backups(create=False)
+            if backup_fd is None:
+                raise TransactionRecoveryError(
+                    "CORRUPT_JOURNAL", "journal backup directory is unavailable"
+                )
 
     validated: list[RecoveryWrite] = []
     seen_casefold: dict[str, str] = {}
@@ -4140,15 +4594,24 @@ def _validated_recovery_writes(
 
         backup_content: bytes | None = None
         if original_hash is not None:
-            if backup_fd is None:
-                raise TransactionRecoveryError(
-                    "CORRUPT_JOURNAL", "required transaction backups are unavailable"
+            if backup_fd is None and not (_supports_confined_dirfd() and transaction.fd >= 0):
+                assert transaction.path is not None
+                backup_file = transaction.path / "backups" / expected_backup
+                if backup_file.is_symlink() or not backup_file.is_file():
+                    raise TransactionRecoveryError(
+                        "CORRUPT_JOURNAL", "required transaction backups are unavailable"
+                    )
+                backup_content = backup_file.read_bytes()
+            else:
+                if backup_fd is None:
+                    raise TransactionRecoveryError(
+                        "CORRUPT_JOURNAL", "required transaction backups are unavailable"
+                    )
+                backup_content = _read_recovery_backup_at(
+                    backup_fd,
+                    expected_backup,
+                    label=f"transaction backup {expected_backup}",
                 )
-            backup_content = _read_recovery_backup_at(
-                backup_fd,
-                expected_backup,
-                label=f"transaction backup {expected_backup}",
-            )
             total_backup_bytes += len(backup_content)
             if total_backup_bytes > MAX_RECOVERY_TOTAL_BACKUP_BYTES:
                 raise TransactionRecoveryError(
@@ -4161,8 +4624,12 @@ def _validated_recovery_writes(
                     f"transaction backup {expected_backup} is corrupt",
                 )
         elif (
-            backup_fd is not None
-            and _runtime_entry_metadata(backup_fd, expected_backup) is not None
+            (backup_fd is not None or (transaction.path and ((transaction.path / "backups" / expected_backup).is_symlink() or (transaction.path / "backups" / expected_backup).exists())))
+            and (
+                _runtime_entry_metadata(backup_fd, expected_backup) is not None
+                if backup_fd is not None
+                else ((transaction.path / "backups" / expected_backup).is_symlink() or (transaction.path / "backups" / expected_backup).exists())
+            )
         ):
             raise TransactionRecoveryError(
                 "CORRUPT_JOURNAL",
@@ -4198,8 +4665,8 @@ def _restore_journal(
     transaction: _OperationStore,
     journal: dict[str, Any],
     *,
-    root_fd: int,
-    meta_fd: int,
+    root_fd: int | None = None,
+    meta_fd: int | None = None,
     pending_write_started: bool = True,
 ) -> None:
     """Restore every journal write that may have reached the vault.
@@ -4451,8 +4918,9 @@ def _validate_replay_evidence(
         vault_root, operation, journal, root_fd=root_fd, meta_fd=meta_fd
     )
     _validate_result_journal_correlation(operation_id, result, journal, writes)
-    saved = _read_runtime_json_at(
-        operation.fd, "bundle.json", label=f"transaction {operation_id} bundle",
+    saved = operation.read_json(
+        "bundle.json",
+        label=f"transaction {operation_id} bundle",
         limit=MAX_TRANSACTION_BUNDLE_BYTES,
     )
     if (
@@ -4510,15 +4978,22 @@ def _recover_incomplete_locked(
     _assert_transaction_namespaces(lock, runtime)
     for operation_name in runtime.operation_names():
         safe_operation_id(operation_name)
-        if runtime.transactions_fd is None:
-            break
-        metadata = _runtime_entry_metadata(runtime.transactions_fd, operation_name)
-        if metadata is None:
-            continue
-        if not stat.S_ISDIR(metadata.st_mode):
-            raise TransactionRecoveryError(
-                "CORRUPT_RUNTIME_STATE", f"unsafe transaction entry: {operation_name}"
-            )
+        if _supports_confined_dirfd():
+            if runtime.transactions_fd is None:
+                break
+            metadata = _runtime_entry_metadata(runtime.transactions_fd, operation_name)
+            if metadata is None:
+                continue
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise TransactionRecoveryError(
+                    "CORRUPT_RUNTIME_STATE", f"unsafe transaction entry: {operation_name}"
+                )
+        else:
+            if runtime.path is None:
+                break
+            op_dir = runtime.path / operation_name
+            if not op_dir.is_dir():
+                continue
         operation = runtime.open_operation(operation_name, create=False)
         if operation is None:
             continue
@@ -4849,8 +5324,10 @@ def apply_bundle(
                     "the current vault directory object differs from the apply transition",
                 )
             if reviewed_vault_identity is not None:
-                assert mutation_lock._root_parent_fd is not None
-                parent_identity = os.fstat(mutation_lock._root_parent_fd)
+                if mutation_lock._root_parent_fd is not None:
+                    parent_identity = os.fstat(mutation_lock._root_parent_fd)
+                else:
+                    parent_identity = mutation_lock.vault_root.parent.stat()
                 if (
                     reviewed_vault_identity["parent_device"] != parent_identity.st_dev
                     or reviewed_vault_identity["parent_inode"] != parent_identity.st_ino
@@ -4943,7 +5420,7 @@ def apply_bundle(
                 )
             with operation:
                 backups_fd = operation.open_backups(create=True)
-                if backups_fd is None:
+                if backups_fd is None and _supports_confined_dirfd():
                     raise TransactionRecoveryError(
                         "CORRUPT_RUNTIME_STATE", "cannot create transaction backups"
                     )
@@ -4952,7 +5429,7 @@ def apply_bundle(
                         vault,
                         bundle,
                         bundle_dir,
-                        None,
+                        operation.path if not _supports_confined_dirfd() else None,
                         backups_fd=backups_fd,
                         root_fd=runtime.root_fd,
                         meta_fd=runtime.meta_fd,

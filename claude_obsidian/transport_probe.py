@@ -17,6 +17,12 @@ def _stop_probe(process: subprocess.Popen) -> None:
         if killpg is not None and hasattr(signal, "SIGKILL"):
             killpg(process.pid, signal.SIGKILL)
         else:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    capture_output=True,
+                    check=False,
+                )
             process.kill()
     except (ProcessLookupError, PermissionError):
         pass

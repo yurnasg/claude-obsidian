@@ -230,6 +230,26 @@ def _open_runtime_directory(parent_fd, name):
 
 def _pinned_chunk_documents(meta_fd):
     """Yield bounded chunk JSON from the exact metadata namespace being locked."""
+    if os.name == "nt" or not hasattr(os, "O_DIRECTORY") or meta_fd is None:
+        if not CHUNKS_DIR.is_dir():
+            log(f"ERR: no chunks directory at {CHUNKS_DIR}")
+            raise SystemExit(EXIT_NO_CHUNKS)
+        for address_dir in sorted(CHUNKS_DIR.iterdir()):
+            if address_dir.is_dir() and not address_dir.is_symlink():
+                for entry in sorted(address_dir.iterdir()):
+                    if (
+                        entry.is_file()
+                        and not entry.is_symlink()
+                        and entry.name.startswith("chunk-")
+                        and entry.name.endswith(".json")
+                    ):
+                        try:
+                            raw = entry.read_bytes()
+                            data = json.loads(raw.decode("utf-8"))
+                            yield address_dir.name, entry.name, data
+                        except (UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
+                            log(f"  skip (unreadable): {entry} — {exc}")
+        return
 
     try:
         chunks_fd = _open_runtime_directory(meta_fd, "chunks")

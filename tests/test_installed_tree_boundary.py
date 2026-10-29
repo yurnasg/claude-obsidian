@@ -145,85 +145,182 @@ class InstalledTreeBoundaryTests(unittest.TestCase):
                 commands.append(([sys.executable, str(launcher), "--help"], {0}))
             commands.extend(
                 (
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/setup-dragonscale.sh"),
-                            "--vault",
-                            str(vault),
-                            "--check",
-                        ],
-                        {0, 1},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/setup-mode.sh"),
-                            "--vault",
-                            str(vault),
-                            "--check",
-                        ],
-                        {0},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/setup-multi-agent.sh"),
-                            "--dry-run",
-                            "--host",
-                            "codex",
-                        ],
-                        {0},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/setup-retrieve.sh"),
-                            "--vault",
-                            str(vault),
-                            "--check",
-                        ],
-                        {0},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/setup-vault.sh"),
-                            "--vault",
-                            str(vault),
-                            "--check",
-                        ],
-                        {0, 1},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/allocate-address.sh"),
-                            "--vault",
-                            str(vault),
-                            "--peek",
-                        ],
-                        {0},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/detect-transport.sh"),
-                            "--vault",
-                            str(vault),
-                            "--peek",
-                            "--quiet",
-                        ],
-                        {0},
-                    ),
-                    (
-                        [
-                            "bash",
-                            str(installed / "scripts/wiki-lock.sh"),
-                            "peek",
-                            "wiki/Page.md",
-                        ],
-                        {0},
+                    *(
+                        (
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "setup-dragonscale",
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0, 1},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "setup-mode",
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "setup-multi-agent",
+                                    "--dry-run",
+                                    "--host",
+                                    "codex",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "setup-retrieve",
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "setup-vault",
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0, 1},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "allocate-address",
+                                    "--vault",
+                                    str(vault),
+                                    "--peek",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    str(installed / "scripts/claude-obsidian.py"),
+                                    "detect-transport",
+                                    "--vault",
+                                    str(vault),
+                                    "--peek",
+                                    "--quiet",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    sys.executable,
+                                    "-B",
+                                    "-c",
+                                    "import sys, runpy; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module('claude_obsidian.legacy_lock', run_name='__main__')",
+                                    str(installed),
+                                    "peek",
+                                    "wiki/Page.md",
+                                ],
+                                {0, 3},
+                            ),
+                        )
+                        if os.name == "nt"
+                        else (
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/setup-dragonscale.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0, 1},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/setup-mode.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/setup-multi-agent.sh"),
+                                    "--dry-run",
+                                    "--host",
+                                    "codex",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/setup-retrieve.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/setup-vault.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--check",
+                                ],
+                                {0, 1},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/allocate-address.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--peek",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/detect-transport.sh"),
+                                    "--vault",
+                                    str(vault),
+                                    "--peek",
+                                    "--quiet",
+                                ],
+                                {0},
+                            ),
+                            (
+                                [
+                                    "bash",
+                                    str(installed / "scripts/wiki-lock.sh"),
+                                    "peek",
+                                    "wiki/Page.md",
+                                ],
+                                {0},
+                            ),
+                        )
                     ),
                     (
                         [

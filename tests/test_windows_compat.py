@@ -23,6 +23,7 @@ import stat as stat_module
 import sys
 import tempfile
 from pathlib import Path
+import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -304,22 +305,19 @@ def test_zero_inode_identity_fails_closed() -> None:
     assert paths_module.is_same_object(fake, fake) is False
 
 
-def test_apply_refused_before_any_side_effect() -> None:
+def test_apply_succeeds_without_dirfd() -> None:
     with tempfile.TemporaryDirectory() as td, windows_mode():
         vault = make_vault(Path(td) / "vault")
         operation = bundle(
-            "refused", [{"path": "wiki/A.md", "mode": "create", "content": "x"}]
+            "applied", [{"path": "wiki/A.md", "mode": "create", "content": "x"}]
         )
-        exc = expect_validation_error(
-            "UNSUPPORTED_PLATFORM", apply_bundle, vault, operation
-        )
-        assert "WSL" in str(exc)
-        assert "docs/windows-wsl.md" in str(exc), "refusal must point at the guide"
-        assert not (vault / ".vault-meta").exists(), "refusal must be side-effect free"
-        assert not (vault / "wiki" / "A.md").exists()
+        result = apply_bundle(vault, operation)
+        assert result["status"] == "complete"
+        assert (vault / "wiki" / "A.md").read_text(encoding="utf-8") == "x"
+        assert (vault / ".vault-meta").exists()
 
 
-def test_cli_surfaces_platform_error_without_traceback() -> None:
+def test_cli_apply_succeeds_without_dirfd() -> None:
     with tempfile.TemporaryDirectory() as td, windows_mode():
         vault = make_vault(Path(td) / "vault")
         operation = bundle(
@@ -348,16 +346,28 @@ def test_cli_surfaces_platform_error_without_traceback() -> None:
                     str(plan["approval_sha256"]),
                 ]
             )
-        assert apply_rc == 2
-        assert err.getvalue().startswith("ERR UNSUPPORTED_PLATFORM:")
-        assert "Traceback" not in err.getvalue()
+        assert apply_rc == 0, err.getvalue()
+        assert (vault / "wiki" / "A.md").read_text(encoding="utf-8") == "# A\n"
 
 
-def test_init_apply_refused_before_mkdir() -> None:
-    # A refused init must not create-and-abandon the destination directory
-    # (failed Init roots are deliberately never path-deleted).
+def test_init_apply_succeeds_without_dirfd() -> None:
     with tempfile.TemporaryDirectory() as td, windows_mode():
         destination = Path(td) / "new-vault"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            plan_rc = cli_module.main(
+                [
+                    "init",
+                    str(destination),
+                    "--generated-at",
+                    "2026-07-31T00:00:00Z",
+                    "--operation-id",
+                    "win-init",
+                ]
+            )
+        assert plan_rc == 0, err.getvalue()
+        plan = json.loads(out.getvalue())
+        assert plan["status"] == "dry-run"
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = cli_module.main(
@@ -370,12 +380,13 @@ def test_init_apply_refused_before_mkdir() -> None:
                     "win-init",
                     "--apply",
                     "--approved-plan-sha256",
-                    "0" * 64,
+                    str(plan["approved_plan_sha256"]),
                 ]
             )
-        assert rc == 2, err.getvalue()
-        assert err.getvalue().startswith("ERR UNSUPPORTED_PLATFORM:")
-        assert not destination.exists(), "refused init must not create the root"
+        assert rc == 0, err.getvalue()
+        assert destination.is_dir()
+        assert (destination / ".obsidian").is_dir()
+        assert (destination / "wiki").is_dir()
 
 
 def test_identity_change_detected_in_path_mode() -> None:
@@ -461,9 +472,7 @@ def test_capability_predicates_are_false_on_nt() -> None:
             assert exc.errno == errno.ENOTSUP
         else:
             raise AssertionError("lock support must be refused on nt")
-        expect_validation_error(
-            "UNSUPPORTED_PLATFORM", transaction_module._require_write_platform
-        )
+        transaction_module._require_write_platform()
 
 
 def test_crlf_page_hash_is_stable_across_read_paths() -> None:
@@ -511,6 +520,59 @@ def test_nonblocking_read_flags_degrade_without_o_nonblock() -> None:
                 os.O_NONBLOCK = saved
 
 
+class WindowsCompatTests(unittest.TestCase):
+    def test_nonblocking_read_flags_degrade_without_o_nonblock(self) -> None:
+        test_nonblocking_read_flags_degrade_without_o_nonblock()
+
+    def test_inspect_dry_run_succeeds_without_dirfd(self) -> None:
+        test_inspect_dry_run_succeeds_without_dirfd()
+
+    def test_vault_root_alias_rejected_without_dirfd(self) -> None:
+        test_vault_root_alias_rejected_without_dirfd()
+
+    def test_write_path_alias_rejected_without_dirfd(self) -> None:
+        test_write_path_alias_rejected_without_dirfd()
+
+    def test_no_self_alias_false_positive(self) -> None:
+        test_no_self_alias_false_positive()
+
+    def test_sibling_limit_enforced_without_dirfd(self) -> None:
+        test_sibling_limit_enforced_without_dirfd()
+
+    def test_unaliased_directory_rejects_indirection(self) -> None:
+        test_unaliased_directory_rejects_indirection()
+
+    def test_vault_identity_path_mode_states(self) -> None:
+        test_vault_identity_path_mode_states()
+
+    def test_zero_inode_identity_fails_closed(self) -> None:
+        test_zero_inode_identity_fails_closed()
+
+    def test_apply_succeeds_without_dirfd(self) -> None:
+        test_apply_succeeds_without_dirfd()
+
+    def test_cli_apply_succeeds_without_dirfd(self) -> None:
+        test_cli_apply_succeeds_without_dirfd()
+
+    def test_init_apply_succeeds_without_dirfd(self) -> None:
+        test_init_apply_succeeds_without_dirfd()
+
+    def test_identity_change_detected_in_path_mode(self) -> None:
+        test_identity_change_detected_in_path_mode()
+
+    def test_unportable_write_paths_rejected_on_every_platform(self) -> None:
+        test_unportable_write_paths_rejected_on_every_platform()
+
+    def test_native_windows_bundle_and_workspace_config_load(self) -> None:
+        test_native_windows_bundle_and_workspace_config_load()
+
+    def test_capability_predicates_are_false_on_nt(self) -> None:
+        test_capability_predicates_are_false_on_nt()
+
+    def test_crlf_page_hash_is_stable_across_read_paths(self) -> None:
+        test_crlf_page_hash_is_stable_across_read_paths()
+
+
 def main() -> None:
     test_nonblocking_read_flags_degrade_without_o_nonblock()
     test_inspect_dry_run_succeeds_without_dirfd()
@@ -521,9 +583,9 @@ def main() -> None:
     test_unaliased_directory_rejects_indirection()
     test_vault_identity_path_mode_states()
     test_zero_inode_identity_fails_closed()
-    test_apply_refused_before_any_side_effect()
-    test_cli_surfaces_platform_error_without_traceback()
-    test_init_apply_refused_before_mkdir()
+    test_apply_succeeds_without_dirfd()
+    test_cli_apply_succeeds_without_dirfd()
+    test_init_apply_succeeds_without_dirfd()
     test_identity_change_detected_in_path_mode()
     test_unportable_write_paths_rejected_on_every_platform()
     test_native_windows_bundle_and_workspace_config_load()

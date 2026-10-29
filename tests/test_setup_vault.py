@@ -10,6 +10,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,16 @@ def _run(*arguments: str, cwd: Path | None = None, env: dict[str, str] | None = 
     merged = os.environ.copy()
     if env:
         merged.update(env)
+    if os.name == "nt":
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "claude-obsidian.py"), "setup-vault", *arguments],
+            cwd=cwd or ROOT,
+            env=merged,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
     return subprocess.run(
         ["bash", str(SCRIPT), *arguments],
         cwd=cwd or ROOT,

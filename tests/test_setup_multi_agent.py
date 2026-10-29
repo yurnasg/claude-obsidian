@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,17 @@ class SetupMultiAgentTests(unittest.TestCase):
     def invoke(self, home: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         environment = dict(os.environ)
         environment["HOME"] = str(home)
+        environment["USERPROFILE"] = str(home)
+        if os.name == "nt":
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "claude-obsidian.py"), "setup-multi-agent", *arguments],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
         return subprocess.run(
             ["bash", str(SCRIPT), *arguments],
             cwd=ROOT,

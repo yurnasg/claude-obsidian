@@ -90,17 +90,17 @@ class CapacityTests(unittest.TestCase):
     def test_only_ledgers_at_or_above_near_capacity_are_rewritten(self):
         source = self.vault / 'wiki/meta/ledgers/source-ledger.json'
         claim = self.vault / 'wiki/meta/ledgers/claim-ledger.json'
-        claim.write_text(json.dumps({'schema': CLAIM_SCHEMA, 'claims': {}}, indent=2) + '\n')
+        claim.write_text(json.dumps({'schema': CLAIM_SCHEMA, 'claims': {}}, indent=2) + '\n', encoding='utf-8', newline='')
         claim_before = claim.read_bytes()
         record = json.dumps({'schema': SOURCE_SCHEMA, 'sources': {}}, indent=2)
         limit = 1000
         threshold = 850  # the inspect_capacity near_capacity boundary at this limit
         with mock.patch('claude_obsidian.capacity.MAX_CANONICAL_LEDGER_BYTES', limit):
-            source.write_text(record + ' ' * (threshold - 1 - len(record)))
+            source.write_text(record + ' ' * (threshold - 1 - len(record)), encoding='utf-8', newline='')
             self.assertEqual('within_capacity', inspect_capacity(self.vault)['ledgers'][0]['status'])
             empty = compaction_bundle(self.vault, operation_id='nothing-near')
             self.assertEqual(([], {}), (empty['writes'], empty['expected_hashes']))
-            source.write_text(record + ' ' * (threshold - len(record)))
+            source.write_text(record + ' ' * (threshold - len(record)), encoding='utf-8', newline='')
             self.assertEqual('near_capacity', inspect_capacity(self.vault)['ledgers'][0]['status'])
             bundle = compaction_bundle(self.vault, operation_id='near-only')
         self.assertEqual(['wiki/meta/ledgers/source-ledger.json'], [w['path'] for w in bundle['writes']])

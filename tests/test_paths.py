@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -191,7 +192,7 @@ def test_workspace_config_rejects_ambiguous_or_nonregular_authority() -> None:
         config = workspace / ".claude-obsidian.json"
         config.write_text(
             '{"schema":"claude-obsidian.workspace.v1",'
-            f'"vault":"{first}","vault":"{second}"}}',
+            f'"vault":{json.dumps(str(first))},"vault":{json.dumps(str(second))}}}',
             encoding="utf-8",
         )
         try:
@@ -288,6 +289,41 @@ def test_platform_flag_helpers_degrade_without_posix_flags() -> None:
     assert is_same_object(fake_real, fake_real)
     assert not is_same_object(fake_zero, fake_zero), "zero inode is never equal"
     assert not is_same_object(fake_real, fake_zero)
+
+
+class PathTests(unittest.TestCase):
+    def test_precedence_and_config(self) -> None:
+        test_precedence_and_config()
+
+    def test_plugin_root_rejected_implicitly_and_explicitly(self) -> None:
+        test_plugin_root_rejected_implicitly_and_explicitly()
+
+    def test_plugin_root_env_vars_rejected_implicitly_and_explicitly(self) -> None:
+        test_plugin_root_env_vars_rejected_implicitly_and_explicitly()
+
+    def test_plugin_tree_without_vault_sentinels_is_still_rejected_implicitly(self) -> None:
+        test_plugin_tree_without_vault_sentinels_is_still_rejected_implicitly()
+
+    def test_plugin_descendants_are_never_mutable_vaults(self) -> None:
+        test_plugin_descendants_are_never_mutable_vaults()
+
+    def test_missing_or_ambiguous_selection_fails_closed(self) -> None:
+        test_missing_or_ambiguous_selection_fails_closed()
+
+    def test_assert_within_resolves_symlink_escape(self) -> None:
+        test_assert_within_resolves_symlink_escape()
+
+    def test_workspace_config_root_must_be_an_object(self) -> None:
+        test_workspace_config_root_must_be_an_object()
+
+    def test_workspace_config_rejects_ambiguous_or_nonregular_authority(self) -> None:
+        test_workspace_config_rejects_ambiguous_or_nonregular_authority()
+
+    def test_product_tree_exclusion_uses_portable_case_and_unicode_identity(self) -> None:
+        test_product_tree_exclusion_uses_portable_case_and_unicode_identity()
+
+    def test_platform_flag_helpers_degrade_without_posix_flags(self) -> None:
+        test_platform_flag_helpers_degrade_without_posix_flags()
 
 
 def main() -> None:

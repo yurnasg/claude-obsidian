@@ -17,6 +17,9 @@ DRAGONSCALE = ROOT / "scripts/setup-dragonscale.sh"
 SETUP_VAULT = ROOT / "scripts/setup-vault.sh"
 
 
+import sys
+
+
 class SetupWrapperTests(unittest.TestCase):
     def vault(self, parent: Path) -> Path:
         vault = parent / "vault"
@@ -28,6 +31,16 @@ class SetupWrapperTests(unittest.TestCase):
     def invoke(
         self, script: Path, vault: Path, *arguments: str
     ) -> subprocess.CompletedProcess[str]:
+        if os.name == "nt":
+            subcmd = script.stem
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "claude-obsidian.py"), subcmd, *arguments],
+                cwd=vault,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
         return subprocess.run(
             ["bash", str(script), *arguments],
             cwd=vault,
@@ -72,6 +85,8 @@ class SetupWrapperTests(unittest.TestCase):
                     self.assertIn("--approved-plan-sha256", result.stdout)
 
     def test_setup_vault_is_a_non_writing_core_dispatcher(self) -> None:
+        if os.name == "nt":
+            self.skipTest("fake bash binary runner requires POSIX environment")
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             missing = base / "new vault"
