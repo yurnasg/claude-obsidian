@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -558,7 +559,7 @@ class CopilotHooksTests(unittest.TestCase):
         self.assertEqual(handler["type"], "command")
         self.assertEqual(
             handler["command"],
-            "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/claude-obsidian.py hook session-start",
+            'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/claude-obsidian.py" hook session-start',
         )
         self.assertEqual(handler.get("timeout"), 5)
 
@@ -574,24 +575,38 @@ class CopilotHooksTests(unittest.TestCase):
         self.assertEqual(stop_handler["type"], "command")
         self.assertEqual(
             stop_handler["command"],
-            "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/claude-obsidian.py hook stop",
+            'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/claude-obsidian.py" hook stop',
         )
         self.assertEqual(stop_handler.get("timeout"), 5)
 
     def test_copilot_hooks_execution(self) -> None:
+        path = ROOT / "com.github.copilot/hooks/hooks.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        hooks = data["hooks"]
+
         with tempfile.TemporaryDirectory() as td:
+            plugin_root = Path(td) / "plugin dir with spaces"
+            plugin_root.mkdir()
+            shutil.copytree(ROOT / "scripts", plugin_root / "scripts")
+            shutil.copytree(ROOT / "claude_obsidian", plugin_root / "claude_obsidian")
+
             vault = make_vault(Path(td) / "vault", "COPILOT_SENTINEL\n")
             env = _hook_env(vault)
-            for event in ("session-start", "stop"):
+            for event, key in (("session-start", "SessionStart"), ("stop", "Stop")):
+                cmd_template = hooks[key][0]["hooks"][0]["command"]
+                cmd = cmd_template.replace("python3", f'"{sys.executable}"').replace(
+                    "${CLAUDE_PLUGIN_ROOT}", str(plugin_root)
+                )
                 result = subprocess.run(
-                    [sys.executable, str(ROOT / "scripts/claude-obsidian.py"), "hook", event],
+                    cmd,
                     cwd=vault,
                     env=env,
                     capture_output=True,
                     text=True,
                     timeout=10,
+                    shell=True,
                 )
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.returncode, 0, f"Failed for {event}: {result.stderr}")
                 if event == "session-start":
                     self.assertIn("COPILOT_SENTINEL", result.stdout)
 
