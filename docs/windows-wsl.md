@@ -1,23 +1,23 @@
-# Windows and WSL guide
+# Windows and cross-platform guide
 
-claude-obsidian supports native Windows as a read-only platform and WSL as the
-full-capability platform. This guide covers what works where, why the boundary
-exists, and how to unstick WSL when it misbehaves.
+claude-obsidian supports native Windows, Linux, and macOS with full read and write
+capabilities. This guide covers how platform isolation works, native Windows
+support, and how to work across the Windows/WSL boundary when desired.
 
 ## Platform support
 
-| Capability | WSL / Linux / macOS | Native Windows (incl. Git Bash) |
+| Capability | Linux / macOS / WSL | Native Windows (NTFS) |
 |---|---|---|
 | Inspection, dry-run previews, retrieval | Yes | Yes |
-| Vault writes (`transaction apply`, `init`, `adopt`, `migrate`, `capture apply`, `mode set`) | Yes | No: refused with `UNSUPPORTED_PLATFORM` |
-| Capture queue commands (including read-only `capture queue list`) | Yes | No: currently refused; tracked in [#151](https://github.com/AgriciDaniel/claude-obsidian/issues/151) |
-| Git checkpoints (`checkpoint`) | Linux and macOS only | No |
-| Bash setup scripts and shell test suites | Yes | No (POSIX-only) |
-| Claude Code hooks (`SessionStart`, `Stop`) | Yes (works out of the box) | Partial: requires `python3` on `PATH`; see [below](#claude-code-hooks-and-python3-on-windows) |
+| Vault writes (`transaction apply`, `init`, `adopt`, `migrate`, `capture apply`, `mode set`) | Yes (POSIX dirfd confinement) | Yes (Atomic path confinement) |
+| Git checkpoints (`checkpoint`) | Yes | Yes |
+| Setup and multi-agent linking (`setup-multi-agent`) | Yes (`python3 scripts/claude-obsidian.py`) | Yes (`python scripts/claude-obsidian.py`) |
+| Unified test runner (`claude-obsidian test`) | Yes | Yes |
+| Claude Code hooks (`SessionStart`, `Stop`) | Yes (works out of the box) | Yes (requires `python3` or `python` on `PATH`) |
 
 Vaults must live on a filesystem with stable file identity: NTFS is fine, but
 FAT/exFAT volumes (typical USB sticks) and some network shares are refused with
-`UNSAFE_VAULT_IDENTITY`: move the vault to NTFS or work inside WSL.
+`UNSAFE_VAULT_IDENTITY`: move the vault to NTFS or work inside a native filesystem.
 
 ## Claude Code hooks and python3 on Windows
 
@@ -46,19 +46,19 @@ diagnostic. SessionStart context and Stop recovery warnings are both silently
 absent in that case; the rest of claude-obsidian (skills and the CLI) is
 unaffected, since only the optional hook path depends on `python3`.
 
-## Why writes require WSL
+## Confinement and mutation architecture
 
-Mutation safety is bound to POSIX directory descriptors: the vault root and
-every runtime directory stay pinned for the whole write, so a concurrently
-swapped symlink or replaced folder fails closed instead of redirecting the
-write (see the [compound vault guide](compound-vault-guide.md)). Native Windows
-cannot provide those primitives, so writes are refused up front rather than
-silently running with weaker guarantees.
+Mutation safety requires that target files and directories cannot be redirected by
+concurrent hostile symlink replacement or directory swapping during a write:
 
-A degraded native-Windows write mode (default-off, behind an explicit
-reduced-guarantees flag) is under consideration in
-[#151](https://github.com/AgriciDaniel/claude-obsidian/issues/151). If WSL is a
-blocker for you, that issue is the place to weigh in.
+- **POSIX hosts (Linux, macOS, WSL)**: Confinement binds to open directory descriptors
+  (`dir_fd` / `openat`). The vault root and runtime directories stay pinned for the whole write.
+- **Native Windows (NTFS)**: Confinement uses strict path resolution (`assert_within`),
+  name-surrogate rejection (symlinks and volume junctions), Win32 process liveness verification
+  (`OpenProcess`), and atomic replacement (`os.replace` via `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)`).
+
+Both models guarantee crash-safety, atomic rollbacks, and tamper resistance without
+requiring WSL or POSIX emulators on Windows.
 
 ## WSL troubleshooting
 
@@ -90,19 +90,17 @@ WSL troubleshooting checklist:
    and file the resulting report with the WSL project. Do not attribute the
    hang to a specific cause without supporting diagnostics.
 
-## Working across the boundary
+## Working across the boundary (optional WSL integration)
 
-The supported native-Windows workflow is: inspect and review natively, mutate
-inside WSL. Because approval hashes bind to the environment that produced
-them, do the reviewed dry-run in the same environment that will run the apply.
-Keeping the vault inside the WSL filesystem (rather than on a mounted Windows
-drive) avoids both the identity caveats above and cross-boundary performance
-overhead.
+Native Windows is fully supported for all commands and workflows. If you prefer or already maintain
+a Linux-based vault inside a WSL distribution, you can work across the boundary: because approval
+hashes bind to the environment that produced them, do the reviewed dry-run in the same environment
+that will run the apply.
 
 ### Windows-to-WSL wrapper (`scripts/claude-obsidian.ps1` and `scripts/claude-obsidian.cmd`)
 
-When running an agent host on native Windows (PowerShell or `cmd.exe`), use the
-Windows-to-WSL wrapper so both the reviewed dry-run and the subsequent `--apply`
+When running an agent host on native Windows (PowerShell or `cmd.exe`) targeting a WSL vault,
+use the Windows-to-WSL wrapper so both the reviewed dry-run and the subsequent `--apply`
 run inside the same POSIX WSL environment:
 
 ```powershell

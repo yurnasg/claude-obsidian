@@ -96,9 +96,8 @@ for the whole operation. Targets, journals, results, backups, capture queues,
 checkpoints, and derived retrieval publications use no-follow descriptor-based
 I/O, so replacing a public root, metadata, transaction, operation, or backup
 entry cannot redirect reads, writes, rollback, or cleanup outside the selected
-vault. This confinement requires POSIX directory descriptors and
-`fcntl.flock`; Windows users must run the skill under WSL rather than native
-Windows or Git Bash (setup and troubleshooting: `docs/windows-wsl.md`).
+vault. This confinement uses POSIX directory descriptors on Linux/macOS/WSL, and strict
+atomic path confinement on native Windows NTFS (cross-platform details: `docs/windows-wsl.md`).
 
 ## Required coupled writes
 

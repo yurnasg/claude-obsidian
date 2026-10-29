@@ -33,11 +33,13 @@ Preview and install with:
 
 ```bash
 # Global plugin installation (default):
-bash "$PRODUCT_ROOT/scripts/setup-multi-agent.sh" --apply
+python3 "$CORE" setup-multi-agent --apply
 
 # Project-scoped plugin installation:
-bash "$PRODUCT_ROOT/scripts/setup-multi-agent.sh" --workspace /path/to/project --apply
+python3 "$CORE" setup-multi-agent --workspace /path/to/project --apply
 ```
+
+(The shell script `bash "$PRODUCT_ROOT/scripts/setup-multi-agent.sh"` remains available as a backward-compatible shim).
 
 Mutable vault state must never resolve from `${PLUGIN_ROOT}`,
 `${CLAUDE_PLUGIN_ROOT}`, or `${CURSOR_PLUGIN_ROOT}`.

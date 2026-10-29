@@ -18,10 +18,9 @@ for development, but a normal user vault should be a separate directory.
   Copilot, Cursor, ChatGPT, Codex), Claude Code, or an [Agent Skills](https://agentskills.io)
   compatible host
 - Obsidian when you want its visual editor
-- Bash for installer and optional legacy-extension scripts
+- Standard Python (everything runs natively via standard-library subcommands without requiring Bash or external build tools)
 - Git only for source development, release builds, or explicit checkpoints
-- On Windows: WSL for vault writes; native Windows supports read-only
-  inspection and dry-runs, see the [Windows and WSL guide](windows-wsl.md)
+- On Windows: native NTFS support for inspection and writes; WSL is completely optional (see the [Windows and cross-platform guide](windows-wsl.md))
 
 ## Agent Plugins 1.0 (Default Cross-Platform Package)
 
@@ -135,14 +134,16 @@ Windsurf), link each canonical `skills/<name>/` directory into the host's direct
 
 ```bash
 # OpenCode (user-level):
-bash scripts/setup-multi-agent.sh --host opencode --apply
+python3 scripts/claude-obsidian.py setup-multi-agent --host opencode --apply
 
 # ZCode (user-level):
-bash scripts/setup-multi-agent.sh --host zcode --apply
+python3 scripts/claude-obsidian.py setup-multi-agent --host zcode --apply
 
 # Windsurf (workspace-scoped):
-bash scripts/setup-multi-agent.sh --host windsurf --workspace <workspace> --apply
+python3 scripts/claude-obsidian.py setup-multi-agent --host windsurf --workspace <workspace> --apply
 ```
+
+(The shell script `bash scripts/setup-multi-agent.sh` remains supported as a backward-compatible shim).
 
 Manual per-skill link locations:
 
@@ -348,8 +349,7 @@ User notes, sources, ledgers, and Obsidian settings remain untouched.
 | Transaction conflict / exit 75 | Another operation is active or a target changed; reread, rebuild, and inspect a new bundle. |
 | Obsidian CLI is unavailable | Use filesystem reads; start/update Obsidian before retrying CLI transport. |
 | Capture adapter is not implemented | Inspect `capture adapters`; configure a separate runner only with explicit consent. |
-| Writes refused with `UNSUPPORTED_PLATFORM` on Windows | Vault mutation requires WSL; see the [Windows and WSL guide](windows-wsl.md). |
-| WSL installed but `wsl --status` hangs | Follow Microsoft's diagnostic and reporting flow in the [Windows and WSL guide](windows-wsl.md#wsl-troubleshooting); do not assume a cause without evidence. |
-| Native dry-run approval fails in WSL with `PLAN_CHANGED` | Approval hashes bind the reviewing environment; redo the dry-run inside WSL ([details](windows-wsl.md#wsl-troubleshooting)). |
+| Writes refused with `UNSAFE_VAULT_IDENTITY` on Windows | The vault is on an unsupported FAT/exFAT or network share; move it to an NTFS drive (see the [Windows guide](windows-wsl.md)). |
+| Native dry-run approval fails across boundary with `PLAN_CHANGED` | Approval hashes bind the reviewing environment; redo the dry-run in the environment running the apply ([details](windows-wsl.md#wsl-troubleshooting)). |
 
-Run `make test` in the product repository when developing or packaging changes.
+Run `python scripts/claude-obsidian.py test` (or `make test`) in the product repository when developing or packaging changes.

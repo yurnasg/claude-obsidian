@@ -102,20 +102,22 @@ claude-obsidian is packaged as an open [Agent Plugins 1.0](https://agent-plugins
   Install either **globally** across all projects or **locally** for the current workspace:
   ```bash
   # Global installation (Antigravity, Copilot, Antigravity CLI, Codex):
-  bash scripts/setup-multi-agent.sh --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --apply
 
   # Project-scoped installation:
-  bash scripts/setup-multi-agent.sh --host antigravity --workspace "$PWD" --apply
-  bash scripts/setup-multi-agent.sh --host codex --workspace "$PWD" --apply
-  bash scripts/setup-multi-agent.sh --host cursor --workspace "$PWD" --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --host antigravity --workspace "$PWD" --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --host codex --workspace "$PWD" --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --host cursor --workspace "$PWD" --apply
   ```
 
 - **Standalone Agent Skills hosts (OpenCode, Gemini, ZCode, Windsurf):**
   Preview and apply per-skill links:
   ```bash
-  bash scripts/setup-multi-agent.sh --host opencode --apply
-  bash scripts/setup-multi-agent.sh --host gemini --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --host opencode --apply
+  python3 scripts/claude-obsidian.py setup-multi-agent --host gemini --apply
   ```
+
+  *(Note: `bash scripts/setup-multi-agent.sh` is also supported as a backward-compatible wrapper).*
 
 Every supported host, marketplace setup, vault adoption, and uninstall steps are covered in the [full installation guide](docs/install-guide.md).
 
@@ -125,7 +127,7 @@ Every supported host, marketplace setup, vault adoption, and uninstall steps are
 <summary><b>Windows</b></summary>
 <br />
 
-On native Windows, read-only inspection and dry-run commands work directly in Python; vault writes require WSL and fail closed with an `UNSUPPORTED_PLATFORM` error otherwise. From native Windows shells (PowerShell or `cmd.exe`), `scripts/claude-obsidian.ps1` and `scripts/claude-obsidian.cmd` transparently forward commands into WSL with automatic Windows/UNC path translation. See the [Windows and WSL guide](docs/windows-wsl.md).
+On native Windows (NTFS), both read-only operations and atomic vault mutations (`init`, `adopt`, `apply_bundle`, `checkpoint`) work directly in Python standard library without requiring WSL or external virtual machines, using atomic path confinement and Win32 process liveness verification. Alternatively, running inside WSL remains fully supported, and `scripts/claude-obsidian.ps1` or `scripts/claude-obsidian.cmd` can transparently forward commands across the boundary. See the [Windows and cross-platform guide](docs/windows-wsl.md).
 
 </details>
 
@@ -361,7 +363,7 @@ Yes. claude-obsidian is packaged as an open [Agent Plugins 1.0](https://agent-pl
 <summary><b>Good to know: requirements, limits and uninstall</b></summary>
 <br />
 
-**Requirements.** Python 3.11 or newer, an Agent Plugins 1.0 client (Antigravity, Copilot, Codex, Cursor), Claude Code, or an Agent Skills host, Obsidian for the visual side, and Bash for setup scripts. Git is only needed for development or checkpoints.
+**Requirements.** Python 3.11 or newer, an Agent Plugins 1.0 client (Antigravity, Copilot, Codex, Cursor), Claude Code, or an Agent Skills host, and Obsidian for the visual side. Everything runs on standard Python without requiring Bash or external build tools (`scripts/claude-obsidian.py test` replaces Make). Git is only needed for development or checkpoints.
 
 **Limits.** It is not an automatic transcript recorder, a cloud sync service or a fact checker, and it does not replace backups. PDFs and web pages need extra tools for full text.
 
