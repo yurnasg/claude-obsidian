@@ -1216,7 +1216,7 @@ def test_cloud_profile_and_legacy_records_invalidate_without_rebuild():
         with (mock.patch.multiple(cp, VAULT_ROOT=vault, WIKI_DIR=vault/"wiki", META_DIR=vault/".vault-meta", CHUNKS_DIR=vault/".vault-meta/chunks", BM25_INDEX_PATH=vault/".vault-meta/bm25/index.json"),
               mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "unused"}, clear=True),
               mock.patch.object(cp, "anthropic_api_prefix", return_value="Mock context.")):
-            first = cp.process_page(page, allow_egress=True)
+            _ = cp.process_page(page, allow_egress=True)
             same = cp.process_page(page, allow_egress=True)
             assert_eq("same cloud profile reuses chunks", 1, same["skipped"])
             changed = cp.process_page(page, allow_egress=True, anthropic_model="claude-haiku-4-5-20251001")

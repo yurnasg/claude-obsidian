@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import json
 import os
@@ -13,7 +12,6 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 

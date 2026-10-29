@@ -63,7 +63,6 @@ from claude_obsidian.limits import MAX_CANONICAL_LEDGER_BYTES
 from claude_obsidian.markdown_links import (
     HTML_COMPLETE_TAG_RE as _HTML_COMPLETE_TAG_RE, html_block_start as _html_block_start,
     iter_markdown_links, iter_wikilinks,
-    markdown_destination as _markdown_destination,
     markdown_visible_text,
     mask_comments as _mask_comments,
     mask_protected_regions as _mask_markdown_code,

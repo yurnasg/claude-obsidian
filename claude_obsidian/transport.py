@@ -10,9 +10,7 @@ import re
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +18,6 @@ from .json_utils import strict_json_loads
 from .paths import resolve_vault_root
 from .transaction import (
     MutationLock,
-    TransactionError,
     _atomic_vault_write,
     read_vault_regular,
 )
