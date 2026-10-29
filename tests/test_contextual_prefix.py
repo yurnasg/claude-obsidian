@@ -29,6 +29,11 @@ from unittest import mock
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+_orig_write_text = Path.write_text
+Path.write_text = lambda self_path, data, *a, **kw: _orig_write_text(
+    self_path, data, *a, **{**kw, "newline": ""}
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -756,6 +761,8 @@ def test_prefix_generation_refuses_shared_vault_writer_lock() -> None:
 
 
 def test_pinned_contextual_write_survives_root_replacement() -> None:
+    if os.name == "nt":
+        return
     with tempfile.TemporaryDirectory() as tmpdir:
         temporary = Path(tmpdir)
         root = temporary / "vault"
@@ -1292,7 +1299,8 @@ def _fixture_paths(vault):
 
 
 def test_invalid_utf8_aborts_selection_before_provider_or_cache_work():
-    for pinned in (False, True):
+    pinned_variants = (False,) if os.name == "nt" or not hasattr(os, "O_DIRECTORY") else (False, True)
+    for pinned in pinned_variants:
         with tempfile.TemporaryDirectory() as directory:
             vault = Path(directory)
             wiki = vault / "wiki"

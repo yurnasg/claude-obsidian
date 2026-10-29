@@ -91,6 +91,8 @@ def _read_regular(path: Path, *, limit: int, label: str) -> bytes:
                     raise PromptEvaluationError(
                         f"{label} path must not contain symlinks or directory junctions"
                     )
+            if not stat.S_ISREG(inspected.st_mode):
+                raise PromptEvaluationError(f"{label} must be a regular non-symlink file")
             descriptor = os.open(
                 path, read_open_flags() | getattr(os, "O_NONBLOCK", 0)
             )

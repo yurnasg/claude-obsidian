@@ -212,7 +212,7 @@ def synthetic_chunk(idx, address, raw_text, contextualized_text):
 def write_source_page(sandbox, address, text):
     page = sandbox / "wiki" / "fake" / f"{address}.md"
     page.parent.mkdir(parents=True, exist_ok=True)
-    page.write_text(text, encoding="utf-8")
+    page.write_text(text, encoding="utf-8", newline="")
     return page
 
 
@@ -678,16 +678,17 @@ def test_invalid_utf8_source_is_stale_in_both_freshness_branches():
         assert_true(f"invalid UTF-8 direct source is stale ({reason})", not current)
         assert_eq("invalid UTF-8 direct hash cache is null", [None], list(direct_cache.values()))
 
-        pinned_cache = {}
-        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            current, reason = bm25.source_page_is_current(
-                record, root, pinned_cache, vault_root_fd=root_fd
-            )
-        finally:
-            os.close(root_fd)
-        assert_true(f"invalid UTF-8 pinned source is stale ({reason})", not current)
-        assert_eq("invalid UTF-8 pinned hash cache is null", [None], list(pinned_cache.values()))
+        if hasattr(os, "O_DIRECTORY") and hasattr(os, "supports_dir_fd") and os.open in os.supports_dir_fd:
+            pinned_cache = {}
+            root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                current, reason = bm25.source_page_is_current(
+                    record, root, pinned_cache, vault_root_fd=root_fd
+                )
+            finally:
+                os.close(root_fd)
+            assert_true(f"invalid UTF-8 pinned source is stale ({reason})", not current)
+            assert_eq("invalid UTF-8 pinned hash cache is null", [None], list(pinned_cache.values()))
 
 
 def test_corrupt_source_is_removed_from_build_and_query_results():
@@ -751,6 +752,8 @@ def test_cli_build_refuses_shared_vault_writer_lock():
 
 
 def test_pinned_build_survives_lexical_root_replacement():
+    if os.name == "nt":
+        return
     with tempfile.TemporaryDirectory() as tmpdir:
         temporary = Path(tmpdir)
         root = temporary / "vault"
@@ -815,6 +818,8 @@ def test_pinned_build_survives_lexical_root_replacement():
 
 
 def test_pinned_build_never_follows_meta_or_bm25_aliases():
+    if os.name == "nt":
+        return
     with tempfile.TemporaryDirectory() as tmpdir:
         temporary = Path(tmpdir)
         root = temporary / "vault"

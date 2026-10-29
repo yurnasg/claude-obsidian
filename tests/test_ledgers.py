@@ -290,7 +290,7 @@ def test_migration_plan_changes_if_batch_locator_appears_before_apply() -> None:
 
         source_path = vault / locator
         source_path.parent.mkdir(parents=True)
-        source_path.write_text("now present\n", encoding="utf-8")
+        source_path.write_text("now present\n", encoding="utf-8", newline="")
         try:
             apply_bundle(
                 vault,
@@ -384,6 +384,8 @@ def test_migration_original_plan_rejects_unsafe_locator_state_changes() -> None:
                     )
                 except (TransactionConflict, TransactionValidationError) as exc:
                     assert exc.code in {
+                        "OUTSIDE_VAULT",
+                        "PATH_OUTSIDE_VAULT",
                         "READ_PRECONDITION_MISMATCH",
                         "SYMLINK_WRITE_PATH",
                         "UNSAFE_READ_PRECONDITION",

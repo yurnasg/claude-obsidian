@@ -512,7 +512,7 @@ def discover_chunks(*, meta_fd=None, vault_root_fd=None):
             log(f"  skip (stale): {chunk_file} — {reason}")
             continue
         chunk_id = f"{address}:{idx}"
-        rel_path = str(chunk_file.relative_to(rel_root))
+        rel_path = chunk_file.relative_to(rel_root).as_posix()
         yield chunk_id, rel_path, text, data
 
 

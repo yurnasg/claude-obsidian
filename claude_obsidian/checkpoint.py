@@ -558,7 +558,16 @@ class _CheckpointStore:
             if not tx_root.is_dir():
                 return None
             try:
-                names = sorted(entry.name for entry in tx_root.iterdir() if entry.is_dir())
+                names: list[str] = []
+                for entry in tx_root.iterdir():
+                    if entry.is_dir():
+                        names.append(entry.name)
+                        if len(names) > MAX_CHECKPOINT_RUNTIME_ENTRIES:
+                            raise CheckpointError(
+                                "CORRUPT_CHECKPOINT",
+                                "transaction runtime exceeds the checkpoint entry limit",
+                            )
+                names.sort()
             except OSError as exc:
                 raise CheckpointError(
                     "CORRUPT_CHECKPOINT", f"cannot list transaction state: {exc}"

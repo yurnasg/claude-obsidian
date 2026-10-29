@@ -16,29 +16,23 @@ help:
 	@echo "  make validate         Run package and contract validators without the test suite"
 	@echo "  make setup-*          Run an opt-in legacy extension setup helper"
 
-test: test-python test-shell test-contracts test-package
-	@echo "All hermetic tests and executable contracts passed."
+test:
+	@$(PYTHON) scripts/claude-obsidian.py test --all
 
 test-python:
-	@set -eu; for test_file in tests/test_*.py; do \
-		echo "=== $$test_file ==="; \
-		$(PYTHON) "$$test_file"; \
-	done
+	@$(PYTHON) scripts/claude-obsidian.py test --unit
 
 test-shell:
-	@set -eu; for test_file in tests/test_*.sh; do \
-		echo "=== $$test_file ==="; \
-		bash "$$test_file"; \
-	done
+	@$(PYTHON) scripts/claude-obsidian.py test --shell
 
 test-contracts:
-	@$(PYTHON) scripts/claude-obsidian.py contracts --check-only
-	@$(PYTHON) scripts/claude-obsidian.py contracts --verify
+	@$(PYTHON) scripts/claude-obsidian.py test --contracts
 
 test-package:
-	@$(PYTHON) scripts/claude-obsidian.py package validate
+	@$(PYTHON) scripts/claude-obsidian.py test --package
 
-validate: test-contracts test-package
+validate:
+	@$(PYTHON) scripts/claude-obsidian.py test --validate
 
 setup-dragonscale:
 	@bash scripts/setup-dragonscale.sh

@@ -26,6 +26,10 @@ def ascii_path_of_length(length: int) -> str:
 
 
 class LegacyLockRuntimeRaceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        if not legacy_lock._supports_confined_runtime():
+            self.skipTest("legacy_lock requires POSIX directory file descriptors")
+
     def _fixture(self, temporary: Path) -> tuple[Path, Path, Path, str, str]:
         plugin = temporary / "installed-product"
         plugin.mkdir()

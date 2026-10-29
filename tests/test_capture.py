@@ -45,6 +45,7 @@ from claude_obsidian.transaction import (
     MutationLock,
     TransactionConflict,
     TransactionValidationError,
+    supports_confined_dirfd,
 )
 from claude_obsidian.cli import _json_object_argument
 
@@ -233,9 +234,10 @@ def test_path_traversal_symlinks_and_malicious_names_fail_closed() -> None:
         (nested / "note.md").write_text("nested\n", encoding="utf-8")
         expect_code("SOURCE_SYMLINK", lambda: capture_filesystem(vault, aliased))
 
-        malicious = vault / "inbox" / "bad\nname.md"
-        malicious.write_text("bad\n", encoding="utf-8")
-        expect_code("UNSAFE_FILENAME", lambda: capture_filesystem(vault, malicious))
+        if os.name != "nt":
+            malicious = vault / "inbox" / "bad\nname.md"
+            malicious.write_text("bad\n", encoding="utf-8")
+            expect_code("UNSAFE_FILENAME", lambda: capture_filesystem(vault, malicious))
 
         raw_capture = vault / ".raw/captured"
         raw_capture.symlink_to(base, target_is_directory=True)
@@ -1227,25 +1229,26 @@ def main() -> None:
     test_public_host_validation_rejects_alternate_loopback_spellings()
     test_aws_signed_urls_and_userinfo_are_rejected()
     test_external_work_is_only_an_inert_plan()
-    test_queue_lifecycle_is_idempotent()
-    test_queue_failure_resume_and_crash_recovery()
-    test_queue_rejects_malformed_entries_and_mismatched_actions()
-    test_queue_lock_is_process_held()
-    test_queue_and_mutation_locks_share_the_vault_advisory_lock()
-    test_nested_queue_lock_attempt_fails_promptly_without_leaking()
-    test_queue_lock_maps_advisory_lock_platform_errors()
-    test_concurrent_queue_writers_are_lossless_and_serialized()
-    test_explicit_queue_recovery_can_reap_stale_pid_reuse_lock()
-    test_queue_force_stale_lock_reaps_dead_same_host_owner()
-    test_ownerless_queue_lock_requires_explicit_force()
-    test_queue_lock_release_and_reaping_ignore_replaced_external_alias()
-    test_queue_io_stays_on_pinned_runtime_across_directory_replacement()
-    test_queue_atomic_file_replacement_never_writes_through_external_aliases()
-    test_queue_operations_do_not_leak_runtime_descriptors()
-    test_queue_primary_and_backup_symlinks_are_never_read()
-    test_queue_write_and_read_limits_are_one_durable_contract()
-    test_oversized_queue_primary_recovers_from_bounded_backup()
-    test_queue_entry_count_is_bounded_before_mutation()
+    if supports_confined_dirfd():
+        test_queue_lifecycle_is_idempotent()
+        test_queue_failure_resume_and_crash_recovery()
+        test_queue_rejects_malformed_entries_and_mismatched_actions()
+        test_queue_lock_is_process_held()
+        test_queue_and_mutation_locks_share_the_vault_advisory_lock()
+        test_nested_queue_lock_attempt_fails_promptly_without_leaking()
+        test_queue_lock_maps_advisory_lock_platform_errors()
+        test_concurrent_queue_writers_are_lossless_and_serialized()
+        test_explicit_queue_recovery_can_reap_stale_pid_reuse_lock()
+        test_queue_force_stale_lock_reaps_dead_same_host_owner()
+        test_ownerless_queue_lock_requires_explicit_force()
+        test_queue_lock_release_and_reaping_ignore_replaced_external_alias()
+        test_queue_io_stays_on_pinned_runtime_across_directory_replacement()
+        test_queue_atomic_file_replacement_never_writes_through_external_aliases()
+        test_queue_operations_do_not_leak_runtime_descriptors()
+        test_queue_primary_and_backup_symlinks_are_never_read()
+        test_queue_write_and_read_limits_are_one_durable_contract()
+        test_oversized_queue_primary_recovers_from_bounded_backup()
+        test_queue_entry_count_is_bounded_before_mutation()
     test_deletion_is_review_only()
     test_cli_capture_uses_one_recoverable_binary_transaction()
     print("All capture tests passed.")

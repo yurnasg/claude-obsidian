@@ -334,8 +334,8 @@ tags:
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                     0o600,
                 )
-            except OSError as exc:
-                if exc.errno in {errno.EILSEQ, errno.EINVAL}:
+            except (OSError, UnicodeDecodeError) as exc:
+                if isinstance(exc, UnicodeDecodeError) or exc.errno in {errno.EILSEQ, errno.EINVAL}:
                     self.skipTest(
                         "filesystem rejects filenames that are not valid UTF-8"
                     )
@@ -2147,6 +2147,8 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
         self.assertEqual("target-not-found", report["dead_links"][0]["reason"])
 
     def test_scanned_markdown_file_swap_is_rejected_at_confined_open(self) -> None:
+        if not transaction_module.supports_confined_dirfd():
+            self.skipTest("requires POSIX directory file descriptors")
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             vault = base / "vault"
@@ -2211,6 +2213,8 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
         self.assertEqual(0, report["summary"]["pages_scanned"])
 
     def test_parent_markdown_file_swap_is_a_controlled_fragment_failure(self) -> None:
+        if not transaction_module.supports_confined_dirfd():
+            self.skipTest("requires POSIX directory file descriptors")
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             vault = base / "vault"
@@ -2266,6 +2270,8 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
         )
 
     def test_parent_markdown_ancestor_swap_cannot_supply_fragment(self) -> None:
+        if not transaction_module.supports_confined_dirfd():
+            self.skipTest("requires POSIX directory file descriptors")
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             vault = base / "vault"
@@ -2350,11 +2356,17 @@ class WikiEntrypointResolutionTests(unittest.TestCase):
 
         self.assertEqual([], report["dead_links"])
         self.assertEqual(1, len(report["hidden_target_links"]))
-        self.assertEqual(
-            "hidden-target-exists-not-indexed",
-            report["hidden_target_links"][0]["reason"],
-        )
-        self.assertEqual(".raw/source.txt", report["hidden_target_links"][0]["resolved_path"])
+        if lint_engine._supports_hidden_checks():
+            self.assertEqual(
+                "hidden-target-exists-not-indexed",
+                report["hidden_target_links"][0]["reason"],
+            )
+            self.assertEqual(".raw/source.txt", report["hidden_target_links"][0]["resolved_path"])
+        else:
+            self.assertEqual(
+                "hidden-target-status-unverified",
+                report["hidden_target_links"][0]["reason"],
+            )
 
     def test_vault_root_exclusions_still_remove_resolution_targets(self) -> None:
         def lint_with_config(config: dict[str, object] | None = None, **options: object) -> dict:

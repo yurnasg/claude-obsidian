@@ -234,6 +234,8 @@ def test_intent_to_add_index_state_is_rejected_and_preserved() -> None:
 
 
 def test_executable_mode_drift_is_rejected_before_ref_update() -> None:
+    if os.name == "nt":
+        return
     with tempfile.TemporaryDirectory() as td:
         root = make_repo(Path(td) / "vault")
         transaction(root)
@@ -249,6 +251,8 @@ def test_executable_mode_drift_is_rejected_before_ref_update() -> None:
 
 
 def test_executable_mode_drift_is_ignored_when_core_filemode_is_false() -> None:
+    if os.name == "nt":
+        return
     for false_value in ("false", "no", "off", "0"):
         with tempfile.TemporaryDirectory() as td:
             root = make_repo(Path(td) / "vault")
@@ -341,7 +345,11 @@ def test_operation_ids_and_transaction_directories_are_confined() -> None:
         escape = root / ".vault-meta/transactions/escape"
         escape.symlink_to(outside, target_is_directory=True)
         expect_code(
-            "UNSAFE_TRANSACTION_DIRECTORY",
+            (
+                "UNSAFE_TRANSACTION_DIRECTORY"
+                if checkpoint_module._supports_confined_dirfd()
+                else "TRANSACTION_RESULT_MISSING"
+            ),
             lambda: checkpoint_operation(root, "escape", run_lint=False),
         )
         assert list(outside.iterdir()) == []

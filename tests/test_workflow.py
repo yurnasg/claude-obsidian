@@ -193,7 +193,7 @@ class WorkflowTests(unittest.TestCase):
             write = bundle['writes'][index]
             path = self.vault / write['path']
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8", newline="")
             write['mode'] = 'replace'
             bundle['expected_hashes'][write['path']] = hashlib.sha256(path.read_bytes()).hexdigest()
         old_catalog = (self.vault / 'wiki/index.md').read_bytes()
@@ -281,7 +281,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_hot_limit_and_preserved_log_history(self):
         old = '## [2026-10-16] save | Earlier\n\nEarlier content.\n'
-        (self.vault / 'wiki/log.md').write_text(old)
+        (self.vault / 'wiki/log.md').write_text(old, encoding="utf-8", newline="")
         bundle = self.bundle()
         bundle['expected_hashes']['wiki/log.md'] = hashlib.sha256(old.encode()).hexdigest()
         bundle['writes'][2]['mode'] = 'replace'
@@ -584,6 +584,8 @@ class WorkflowTests(unittest.TestCase):
                 target.write_bytes(original)
 
     def test_missing_draft_replay_rejects_file_mode_drift(self):
+        if os.name == "nt":
+            self.skipTest("Windows NTFS does not distinguish 0o600 and 0o644 file modes")
         _, source, draft, approval, _ = self.completed_content_file()
         draft.unlink()
         target = self.vault / 'wiki/concepts/Example.md'

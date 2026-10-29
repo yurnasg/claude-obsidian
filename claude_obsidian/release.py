@@ -2034,7 +2034,10 @@ def audit_artifact(path: str | os.PathLike[str]) -> dict[str, Any]:
     try:
         descriptor = os.open(
             artifact,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
         )
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (

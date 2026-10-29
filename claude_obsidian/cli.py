@@ -44,6 +44,7 @@ from .paths import (
 )
 from .release import audit_artifact, build_public_artifact
 from .retrieval_setup import command_setup_retrieve
+from .test_runner import run_tests
 from .transport import command_transport_detect
 from .transaction import (
     MutationLock,
@@ -359,6 +360,23 @@ def command_package_validate(args: argparse.Namespace) -> int:
     report = validate_package(PLUGIN_ROOT)
     _emit(report)
     return 0 if report["ok"] else 1
+
+
+def command_test(args: argparse.Namespace) -> int:
+    return run_tests(
+        all_suites=args.all,
+        unit=args.unit,
+        contracts=args.contracts,
+        package=args.package,
+        shell=args.shell,
+        validate=args.validate,
+        pattern=args.pattern,
+        verbose=args.verbose,
+        fail_fast=args.fail_fast,
+        timeout=args.timeout,
+        as_json=args.json,
+        plugin_root=PLUGIN_ROOT,
+    )
 
 
 def _release_epoch(supplied: int | None) -> int:
@@ -1219,6 +1237,73 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="Validate skills, hooks, and manifest coherence"
     )
     package_validate.set_defaults(handler=command_package_validate)
+
+    test_parser = subcommands.add_parser(
+        "test", help="Unified cross-platform test runner"
+    )
+    test_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all test suites (unit, contracts, package, shell) [default]",
+    )
+    test_parser.add_argument(
+        "--unit", "-u", action="store_true", help="Run unit tests (tests/test_*.py)"
+    )
+    test_parser.add_argument(
+        "--contracts",
+        "-c",
+        action="store_true",
+        help="Run contracts verification (contracts --check-only and --verify)",
+    )
+    test_parser.add_argument(
+        "--package",
+        "-p",
+        action="store_true",
+        help="Run package validation (package validate)",
+    )
+    test_parser.add_argument(
+        "--shell",
+        "-s",
+        action="store_true",
+        help="Run shell tests (tests/test_*.sh) if bash is available",
+    )
+    test_parser.add_argument(
+        "--validate",
+        "-V",
+        action="store_true",
+        help="Run contracts and package validation without unit tests",
+    )
+    test_parser.add_argument(
+        "-k",
+        "--pattern",
+        metavar="PATTERN",
+        help="Filter test files by glob/regex pattern",
+    )
+    test_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show full per-test stdout/stderr and tracebacks",
+    )
+    test_parser.add_argument(
+        "-x",
+        "--fail-fast",
+        action="store_true",
+        help="Stop immediately on first test failure",
+    )
+    test_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=180.0,
+        metavar="SECONDS",
+        help="Per-test timeout in seconds (default: 180)",
+    )
+    test_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit structured JSON report of test results",
+    )
+    test_parser.set_defaults(handler=command_test)
 
     release = subcommands.add_parser(
         "release",

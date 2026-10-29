@@ -29,6 +29,7 @@ os.environ["CLAUDE_OBSIDIAN_VAULT"] = str(ROOT)
 spec = importlib.util.spec_from_file_location("tc", HELPER)
 tc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tc)
+os.environ.pop("CLAUDE_OBSIDIAN_VAULT", None)
 DIGEST = "sha256:" + "a" * 64
 
 if str(ROOT / "tests") not in sys.path:

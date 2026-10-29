@@ -38,7 +38,9 @@ FIXTURE = ROOT / "tests" / "fixtures" / "release" / "public" / "README.md"
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(value, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="",
     )
 
 
@@ -48,6 +50,8 @@ def _configure_fixture_git(repository: Path, *, name: str, email: str) -> None:
     for key, value in (
         ("core.hooksPath", ".git/no-hooks"),
         ("commit.gpgsign", "false"),
+        ("core.autocrlf", "false"),
+        ("core.filemode", "false"),
         ("user.email", email),
         ("user.name", name),
     ):
@@ -103,6 +107,13 @@ class ReleaseRepo(unittest.TestCase):
     def setUp(self) -> None:
         if shutil.which("git") is None:
             self.skipTest("git is required")
+        orig_write_text = Path.write_text
+        self.addCleanup(setattr, Path, "write_text", orig_write_text)
+        Path.write_text = (
+            lambda self_path, data, *a, **kw: orig_write_text(
+                self_path, data, *a, **{**kw, "newline": ""}
+            )
+        )
         self._temporary = tempfile.TemporaryDirectory()
         self.home = Path(self._temporary.name)
         self.repo = self.home / "repo"
@@ -149,6 +160,9 @@ class ReleaseRepo(unittest.TestCase):
             email="release-tests@example.invalid",
         )
         self.commit("fixture")
+        if os.name == "nt":
+            self.git("update-index", "--chmod=+x", "src/tool.py")
+            self.commit("chmod tool.py")
 
     def tearDown(self) -> None:
         self._temporary.cleanup()

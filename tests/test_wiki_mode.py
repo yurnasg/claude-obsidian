@@ -30,6 +30,7 @@ os.environ["CLAUDE_OBSIDIAN_VAULT"] = str(ROOT)
 spec = importlib.util.spec_from_file_location("wiki_mode", HELPER)
 wm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wm)
+os.environ.pop("CLAUDE_OBSIDIAN_VAULT", None)
 
 
 class Fail(SystemExit):

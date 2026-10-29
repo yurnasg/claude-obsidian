@@ -1198,7 +1198,7 @@ def process_page(
     tier = pick_prefix_tier(force_synthetic, allow_egress=allow_egress, local_ollama=local_ollama)
     prefix_profile = prefix_profile_for(tier, anthropic_model=anthropic_model, ollama_config=ollama_config)
     progress = (progress_label + " ") if progress_label else ""
-    page_rel = str(page_path.relative_to(VAULT_ROOT))
+    page_rel = page_path.relative_to(VAULT_ROOT).as_posix()
     # Local mode without a current proof (preflight failed, or peek skipped
     # it): no request can be made, so existing records from the same local
     # endpoint and model stay authoritative for unchanged chunks.
