@@ -129,9 +129,11 @@ $i = 0
 while ($i -lt $args.Count) {
     $argument = [string]$args[$i]
     if ($argument -match '^(--?[A-Za-z0-9][A-Za-z0-9_-]*=)([A-Za-z])$' -and ($i + 1) -lt $args.Count) {
+        $optPrefix = $Matches[1]
+        $optDrive = $Matches[2]
         $next = [string]$args[$i + 1]
-        if ($next -match '^[\\/]') {
-            $argument = $Matches[1] + $Matches[2] + ':' + $next
+        if ($next.StartsWith('/') -or $next.StartsWith('\')) {
+            $argument = $optPrefix + $optDrive + ':' + $next
             $i++
         }
     }
