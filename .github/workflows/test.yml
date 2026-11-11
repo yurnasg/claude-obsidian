@@ -91,7 +91,8 @@ jobs:
             tests/test_knowledge_contracts.py \
             tests/test_contracts.py \
             tests/test_ollama.py \
-            tests/test_windows_compat.py; do
+            tests/test_windows_compat.py \
+            tests/test_windows_wsl_wrapper.py; do
             echo "=== $test_file ==="
             python "$test_file"
           done
