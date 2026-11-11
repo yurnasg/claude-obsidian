@@ -149,25 +149,25 @@ class WslWrapperTests(unittest.TestCase):
         argv = self.argv(
             "doctor",
             "--vault",
-            r"\\wsl.localhost\Debian\home\me\vault",
+            r"\\wsl.localhost\Debian\var\vault",
             r"\\wsl$\Debian\srv",
         )
         self.assertEqual(["-d", "Debian"], argv[:2])
-        self.assertEqual(["--vault", "/home/me/vault", "/srv"], argv[-3:])
+        self.assertEqual(["--vault", "/var/vault", "/srv"], argv[-3:])
 
     def test_pinned_distribution_conflicting_with_a_path_is_refused(self) -> None:
         stderr = self.assert_refused(
             "doctor",
             "--vault",
-            r"\\wsl.localhost\Debian\home\me\vault",
+            r"\\wsl.localhost\Debian\var\vault",
             env={"CLAUDE_OBSIDIAN_WSL_DISTRO": "Ubuntu"},
         )
         self.assertIn("one distribution", stderr)
 
     def test_paths_from_two_distributions_are_refused(self) -> None:
         self.assert_refused(
-            r"\\wsl.localhost\Debian\home\me\a",
-            r"\\wsl.localhost\Ubuntu\home\me\b",
+            r"\\wsl.localhost\Debian\var\a",
+            r"\\wsl.localhost\Ubuntu\var\b",
         )
 
     def test_invalid_distribution_name_is_refused(self) -> None:
@@ -175,9 +175,9 @@ class WslWrapperTests(unittest.TestCase):
 
     def test_mount_root_override_and_validation(self) -> None:
         argv = self.argv(
-            r"C:\Users\me", env={"CLAUDE_OBSIDIAN_WSL_MOUNT_ROOT": "/"}
+            r"C:\Projects\Test", env={"CLAUDE_OBSIDIAN_WSL_MOUNT_ROOT": "/"}
         )
-        self.assertEqual("/c/Users/me", argv[-1])
+        self.assertEqual("/c/Projects/Test", argv[-1])
         self.assert_refused("doctor", env={"CLAUDE_OBSIDIAN_WSL_MOUNT_ROOT": "mnt"})
 
     def test_vault_environment_is_converted_and_forwarded(self) -> None:
