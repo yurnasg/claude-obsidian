@@ -51,7 +51,6 @@ def _configure_fixture_git(repository: Path, *, name: str, email: str) -> None:
         ("core.hooksPath", ".git/no-hooks"),
         ("commit.gpgsign", "false"),
         ("core.autocrlf", "false"),
-        ("core.filemode", "false"),
         ("user.email", email),
         ("user.name", name),
     ):
