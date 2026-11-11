@@ -290,7 +290,7 @@ def detect_transport(
 
 def command_transport_detect(args: argparse.Namespace) -> int:
     vault_str = getattr(args, "vault", None) or getattr(args, "vault_path", None)
-    selection = resolve_vault_root(vault_str, start=Path.cwd())
+    selection = resolve_vault_root(vault_str, start=Path.cwd(), allow_uninitialized=True)
     report = detect_transport(
         selection.root,
         peek=getattr(args, "peek", False),

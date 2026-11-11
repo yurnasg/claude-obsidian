@@ -33,12 +33,9 @@ WRAPPER_ENVIRONMENT = (
 
 
 def _powershell() -> str | None:
-    found = shutil.which("pwsh")
-    if found:
-        return found
     if os.name == "nt":
-        return shutil.which("powershell")
-    return None
+        return shutil.which("powershell") or shutil.which("pwsh")
+    return shutil.which("pwsh")
 
 
 POWERSHELL = _powershell()

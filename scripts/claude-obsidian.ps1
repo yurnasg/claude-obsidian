@@ -56,6 +56,8 @@ function Get-MountRoot {
     return $root
 }
 
+[void](Get-MountRoot)
+
 # Return the WSL form of a recognised Windows path, or $null when the value is
 # not one. Records the distribution named by \\wsl.localhost / \\wsl$ paths.
 function ConvertTo-WslPath([string]$Value) {

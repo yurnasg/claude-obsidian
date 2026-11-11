@@ -777,7 +777,7 @@ def read_vault_regular(
             "INVALID_READ_LIMIT", "read limit must be positive"
         )
     root = canonical(vault_root)
-    if root_fd is None or not _supports_confined_dirfd():
+    if not _supports_confined_dirfd():
         normalized, path = _safe_vault_path(root, relative, existing=existing)
     else:
         normalized = _normalize_vault_path(relative, existing=existing)
@@ -785,7 +785,7 @@ def read_vault_regular(
     descriptor = -1
     parent_descriptor = -1
     try:
-        if _supports_confined_dirfd() and root_fd is not None:
+        if _supports_confined_dirfd():
             try:
                 parent_descriptor, leaf = _open_parent_directory(
                     root,

@@ -76,6 +76,8 @@ def windows_mode():
         mock.patch.object(
             transaction_module, "_supports_confined_dirfd", lambda: False
         ),
+        mock.patch.object(transaction_module, "_require_write_platform", lambda: None),
+        mock.patch.object(cli_module, "_require_write_platform", lambda: None),
     ):
         if saved_flag is not None:
             del os.O_DIRECTORY
