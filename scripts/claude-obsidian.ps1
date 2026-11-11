@@ -125,8 +125,18 @@ $workingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
 $workingDirectoryInWsl = Resolve-RequiredPath $workingDirectory 'current directory'
 
 $forwarded = New-Object System.Collections.Generic.List[string]
-foreach ($argument in $args) {
-    $forwarded.Add((Convert-Argument ([string]$argument)))
+$i = 0
+while ($i -lt $args.Count) {
+    $argument = [string]$args[$i]
+    if ($argument -match '^(--?[A-Za-z0-9][A-Za-z0-9_-]*=)([A-Za-z])$' -and ($i + 1) -lt $args.Count) {
+        $next = [string]$args[$i + 1]
+        if ($next -match '^[\\/]') {
+            $argument = $Matches[1] + $Matches[2] + ':' + $next
+            $i++
+        }
+    }
+    $forwarded.Add((Convert-Argument $argument))
+    $i++
 }
 
 $vaultInWsl = $null
